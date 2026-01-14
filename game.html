@@ -63,6 +63,7 @@
     <div class="ui-overlay">
         <div class="player-info" id="player_name">Caricamento...</div>
         <div style="font-size: 0.8rem; opacity: 0.7;">Pressione TASTI o CLICK per interagire</div>
+        <button id="logout-btn" style="margin-top: 1rem; padding: 0.5rem 1rem; background: rgba(255, 0, 0, 0.5); border: none; border-radius: 0.5rem; color: white; cursor: pointer; pointer-events: auto;">Logout</button>
     </div>
     <div id="status-msg">Inizializzazione...</div>
 
@@ -336,6 +337,23 @@
                         }
                     },
                     error: function (err) { status('Errore dati mappa'); console.error(err); }
+                });
+            });
+
+            $('#logout-btn').on('click', function() {
+                status('Logout in corso...');
+                $.ajax({
+                    url: `${BACK_URL}/api/auth/logout`,
+                    type: 'POST',
+                    data: { player_id: player.id },
+                    success: function() {
+                        status('Logout effettuato');
+                        window.close();
+                    },
+                    error: function(err) {
+                        status('Errore logout');
+                        console.error(err);
+                    }
                 });
             });
         });
