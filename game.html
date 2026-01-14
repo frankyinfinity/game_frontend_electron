@@ -338,14 +338,6 @@
                     error: function (err) { status('Errore dati mappa'); console.error(err); }
                 });
             });
-
-            // Gestione chiusura applicazione
-            window.addEventListener('beforeunload', () => {
-                const closeUrl = `${BACK_URL}/api/players/close`;
-                const formData = new FormData();
-                formData.append('player_id', player.id);
-                navigator.sendBeacon(closeUrl, formData);
-            });
         });
     </script>
 </body>
