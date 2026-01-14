@@ -1,0 +1,383 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gioco - Registrazione</title>
+    <!-- Font Awesome -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/5.15.4/css/all.min.css">
+    <!-- Google Fonts: Source Sans Pro -->
+    <link rel="stylesheet"
+        href="https://fonts.googleapis.com/css?family=Source+Sans+Pro:300,400,400i,700&display=fallback">
+    <!-- Bootstrap CSS (via CDN for simplicity in Electron/adminlte look) -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/admin-lte@3.2/dist/css/adminlte.min.css">
+    <style>
+        body {
+            background-color: #e9ecef;
+            height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-family: 'Source Sans Pro', sans-serif;
+            overflow: auto;
+            /* Allow scrolling if content is tall */
+        }
+
+        .register-box {
+            width: 700px;
+            /* Wider for the complex form */
+            max-width: 90%;
+            margin: 20px auto;
+        }
+
+        .card-primary.card-outline {
+            border-top: 3px solid #007bff;
+        }
+
+        .btn-primary {
+            background-color: #007bff;
+            border-color: #007bff;
+        }
+
+        /* Custom scrollbar for genes container if needed */
+        #genes-container {
+            max-height: 300px;
+            overflow-y: auto;
+            overflow-x: hidden;
+            padding-right: 5px;
+        }
+    </style>
+</head>
+
+<body class="hold-transition register-page">
+    <div class="register-box">
+        <div class="card card-outline card-primary">
+            <div class="card-header text-center">
+                <a href="#" class="h1"><b>gioco</b></a>
+            </div>
+            <div class="card-body">
+                <p class="login-box-msg">Registra un nuovo account</p>
+
+                <form id="registerForm">
+                    <div class="row">
+                        <!-- Nome -->
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label>Nome</label>
+                                <div class="input-group">
+                                    <input type="text" id="name" name="name" class="form-control"
+                                        placeholder="Nome completo" required>
+                                    <div class="input-group-append">
+                                        <div class="input-group-text"><span class="fas fa-user"></span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Email -->
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label>Email</label>
+                                <div class="input-group">
+                                    <input type="email" id="email" name="email" class="form-control" placeholder="Email"
+                                        required>
+                                    <div class="input-group-append">
+                                        <div class="input-group-text"><span class="fas fa-envelope"></span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- Password -->
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label>Password</label>
+                                <div class="input-group">
+                                    <input type="password" id="password" name="password" class="form-control"
+                                        placeholder="Password" required>
+                                    <div class="input-group-append">
+                                        <div class="input-group-text"><span class="fas fa-lock"></span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Nome Specie -->
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label>Nome Specie</label>
+                                <div class="input-group">
+                                    <input type="text" id="name_specie" name="name_specie" class="form-control"
+                                        placeholder="Nome della specie" required>
+                                    <div class="input-group-append">
+                                        <div class="input-group-text"><span class="fas fa-dna"></span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- Pianeta -->
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label>Pianeta Natale</label>
+                                <div class="input-group">
+                                    <select id="birth_planet_id" name="birth_planet_id" class="form-control" required>
+                                        <option value="">Caricamento...</option>
+                                    </select>
+                                    <div class="input-group-append">
+                                        <div class="input-group-text"><span class="fas fa-globe"></span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Regione -->
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label>Regione Natale</label>
+                                <div class="input-group">
+                                    <select id="birth_region_id" name="birth_region_id" class="form-control" required
+                                        disabled>
+                                        <option value="">Seleziona prima un pianeta</option>
+                                    </select>
+                                    <div class="input-group-append">
+                                        <div class="input-group-text"><span class="fas fa-map-marker-alt"></span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <!-- Tile I -->
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label>Posizione I</label>
+                                <div class="input-group">
+                                    <input type="number" id="tile_i" name="tile_i" class="form-control" value="0"
+                                        required>
+                                    <div class="input-group-append">
+                                        <div class="input-group-text"><span class="fas fa-arrows-alt-h"></span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                        <!-- Tile J -->
+                        <div class="col-md-6">
+                            <div class="form-group mb-3">
+                                <label>Posizione J</label>
+                                <div class="input-group">
+                                    <input type="number" id="tile_j" name="tile_j" class="form-control" value="0"
+                                        required>
+                                    <div class="input-group-append">
+                                        <div class="input-group-text"><span class="fas fa-arrows-alt-v"></span></div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <hr>
+                    <h5>Geni della Specie</h5>
+                    <div id="genes-container" class="mb-3">
+                        <p class="text-muted">Caricamento geni...</p>
+                    </div>
+                    <input type="hidden" name="gene_ids" id="gene_ids_hidden">
+
+                    <div class="row">
+                        <div class="col-8">
+                            <div class="icheck-primary">
+                                <input type="checkbox" id="agreeTerms" name="terms" value="agree" required>
+                                <label for="agreeTerms">
+                                    Accetto i <a href="#">termini</a>
+                                </label>
+                            </div>
+                        </div>
+                        <div class="col-4">
+                            <button type="submit" id="submitBtn" class="btn btn-primary btn-block">Registrati</button>
+                        </div>
+                    </div>
+                </form>
+
+                <div id="errorMessage" class="text-danger mt-3 text-center" style="display:none;"></div>
+
+                <a href="login.html" class="text-center mt-2 d-block">Ho già un account</a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const config = require('./config.js');
+        const BACKEND_URL = config.BACKEND_URL;
+
+        document.addEventListener('DOMContentLoaded', function () {
+            const planetSelect = document.getElementById('birth_planet_id');
+            const regionSelect = document.getElementById('birth_region_id');
+            const genesContainer = document.getElementById('genes-container');
+            const geneIdsHidden = document.getElementById('gene_ids_hidden');
+            const errorMsg = document.getElementById('errorMessage');
+
+            // --- 1. Load Planets ---
+            fetch(`${BACKEND_URL}/api/planets`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success && data.planets) {
+                        planetSelect.innerHTML = '<option value="">Seleziona un pianeta</option>';
+                        data.planets.forEach(p => {
+                            const opt = document.createElement('option');
+                            opt.value = p.id;
+                            opt.textContent = p.name;
+                            planetSelect.appendChild(opt);
+                        });
+                    } else {
+                        planetSelect.innerHTML = '<option value="">Errore caricamento</option>';
+                    }
+                })
+                .catch(err => {
+                    console.error(err);
+                    planetSelect.innerHTML = '<option value="">Errore connessione</option>';
+                });
+
+            // --- 2. Handle Planet Change -> Load Regions ---
+            planetSelect.addEventListener('change', function () {
+                const pid = this.value;
+                if (!pid) {
+                    regionSelect.innerHTML = '<option value="">Seleziona prima un pianeta</option>';
+                    regionSelect.disabled = true;
+                    return;
+                }
+                regionSelect.disabled = false;
+                regionSelect.innerHTML = '<option value="">Caricamento...</option>';
+
+                fetch(`${BACKEND_URL}/api/regions/${pid}`)
+                    .then(res => res.json())
+                    .then(data => {
+                        if (data.success && data.regions && data.regions.length > 0) {
+                            regionSelect.innerHTML = '<option value="">Seleziona regione</option>';
+                            data.regions.forEach(r => {
+                                const opt = document.createElement('option');
+                                opt.value = r.id;
+                                opt.textContent = `${r.name} (${r.width}x${r.height})`;
+                                regionSelect.appendChild(opt);
+                            });
+                        } else {
+                            regionSelect.innerHTML = '<option value="">Nessuna regione</option>';
+                        }
+                    })
+                    .catch(e => {
+                        console.error(e);
+                        regionSelect.innerHTML = '<option value="">Errore</option>';
+                    });
+            });
+
+            // --- 3. Load Genes ---
+            fetch(`${BACKEND_URL}/api/registration_genes`)
+                .then(res => res.json())
+                .then(data => {
+                    if (data.success && data.genes) {
+                        genesContainer.innerHTML = '';
+                        // Header row
+                        const header = document.createElement('div');
+                        header.className = 'row font-weight-bold small text-muted mb-2 border-bottom pb-1';
+                        header.innerHTML = `
+                            <div class="col-4">Gene</div>
+                            <div class="col-2 text-center">Min</div>
+                            <div class="col-3 text-center">Range</div>
+                            <div class="col-3">Valore</div>
+                        `;
+                        genesContainer.appendChild(header);
+
+                        const geneIds = [];
+                        data.genes.forEach(g => {
+                            geneIds.push(g.id);
+                            const isMaxDef = g.max !== null;
+                            const defVal = (!isMaxDef && g.max_from !== null) ? g.max_from : (g.min || 0);
+
+                            const row = document.createElement('div');
+                            row.className = 'row mb-2 align-items-center border-bottom pb-2';
+
+                            let rangeContent = '';
+                            if (!isMaxDef) {
+                                rangeContent = `<span class="text-primary font-weight-bold">${g.max_from || 0}</span> - <span class="text-primary font-weight-bold">${g.max_to || 0}</span>`;
+                            } else {
+                                rangeContent = `<span class="badge badge-secondary">Max: ${g.max}</span>`;
+                            }
+
+                            row.innerHTML = `
+                                <div class="col-4">
+                                    <span class="d-block font-weight-bold" style="line-height:1.1;">${g.name || g.key}</span>
+                                    <small class="text-muted" style="font-size:0.7em;">${g.key}</small>
+                                </div>
+                                <div class="col-2 text-center small text-muted">
+                                    ${g.min || 0}
+                                    <input type="hidden" name="gene_min_${g.id}" value="${g.min || 0}">
+                                </div>
+                                <div class="col-3 text-center small">
+                                    ${rangeContent}
+                                    <!-- Hidden inputs for logic consistency if backend expects them -->
+                                    <input type="hidden" name="gene_max_${g.id}" value="${isMaxDef ? g.max : defVal}"> 
+                                </div>
+                                <div class="col-3">
+                                    <input type="number" name="gene_value_${g.id}" class="form-control form-control-sm"
+                                        value="${defVal}" step="1" required
+                                        min="${isMaxDef ? (g.min || 0) : (g.max_from || 0)}"
+                                        max="${isMaxDef ? g.max : (g.max_to || 999999)}">
+                                </div>
+                            `;
+                            genesContainer.appendChild(row);
+                        });
+                        geneIdsHidden.value = geneIds.join(',');
+                    } else {
+                        genesContainer.innerHTML = '<p class="text-danger">Errore caricamento geni</p>';
+                    }
+                })
+                .catch(e => {
+                    console.error(e);
+                    genesContainer.innerHTML = '<p class="text-danger">Errore connessione geni</p>';
+                });
+
+            // --- 4. Submit ---
+            document.getElementById('registerForm').addEventListener('submit', async function (e) {
+                e.preventDefault();
+                errorMsg.style.display = 'none';
+
+                const btn = document.getElementById('submitBtn');
+                btn.disabled = true;
+                btn.innerText = 'Attendere...';
+
+                // Collect data
+                // Note: We need manually construct JSON or FormData. 
+                // Since this runs in Electron (Node env available), we can use FormData easily 
+                // but let's just stick to standard browser API which fetch uses.
+                const formData = new FormData(this);
+
+                try {
+                    const res = await fetch(`${BACKEND_URL}/api/auth/register`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await res.json();
+
+                    if (result.success) {
+                        alert('Registrazione completata!');
+                        window.location.href = 'login.html';
+                    } else {
+                        errorMsg.style.display = 'block';
+                        errorMsg.innerText = result.message || 'Errore durante la registrazione.';
+                    }
+                } catch (err) {
+                    console.error(err);
+                    errorMsg.style.display = 'block';
+                    errorMsg.innerText = 'Errore di connessione al server.';
+                } finally {
+                    btn.disabled = false;
+                    btn.innerText = 'Registrati';
+                }
+            });
+        });
+    </script>
+</body>
+
+</html>
