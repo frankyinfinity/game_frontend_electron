@@ -348,7 +348,7 @@
                     data: { player_id: player.id },
                     success: function() {
                         status('Logout effettuato');
-                        window.close();
+                        ipcRenderer.send('logout');
                     },
                     error: function(err) {
                         status('Errore logout');

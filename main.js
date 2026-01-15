@@ -48,6 +48,11 @@ ipcMain.on('login-success', (event, loginData) => {
   });
 });
 
+ipcMain.on('logout', (event) => {
+  global.playerId = null;
+  mainWindow.loadFile('login.html');
+});
+
 app.on('will-quit', async (e) => {
   if (global.playerId) {
     e.preventDefault(); // Previeni la chiusura immediata
