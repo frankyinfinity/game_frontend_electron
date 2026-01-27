@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="it">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>gioco</title>
+    <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600&display=swap" rel="stylesheet">
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background-color: #fff;
+            color: white;
+            font-family: 'Outfit', sans-serif;
+            overflow: hidden;
+        }
+
+        #display_container {
+            width: 100vw;
+            height: 100vh;
+            background: #fff;
+        }
+
+        canvas {
+            display: block;
+        }
+
+        .ui-overlay {
+            position: absolute;
+            top: 20px;
+            left: 20px;
+            background: rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(10px);
+            padding: 1rem;
+            border-radius: 1rem;
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            pointer-events: none;
+            z-index: 1000;
+        }
+
+        .player-info {
+            font-size: 1.2rem;
+            font-weight: 600;
+        }
+
+        #status-msg {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            font-size: 0.7rem;
+            opacity: 0.5;
+            z-index: 1001;
+            background: rgba(0, 0, 0, 0.5);
+            padding: 5px;
+            border-radius: 5px;
+        }
+    </style>
+</head>
+
+<body>
+    <div id="display_container"></div>
+    <!-- <div class="ui-overlay">
+        <div class="player-info" id="player_name">Caricamento...</div>
+        <div style="font-size: 0.8rem; opacity: 0.7;">Pressione TASTI o CLICK per interagire</div>
+        <button id="logout-btn"
+            style="margin-top: 1rem; padding: 0.5rem 1rem; background: rgba(255, 0, 0, 0.5); border: none; border-radius: 0.5rem; color: white; cursor: pointer; pointer-events: auto;">Logout</button>
+    </div> -->
+    <div id="status-msg">Inizializzazione...</div>
+
+    <script src="https://js.pusher.com/8.4.0/pusher.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
+    <script>window.$ = window.jQuery = require('jquery');</script>
+    <script>
+
+        const { ipcRenderer } = require('electron');
+        const config = require('./config.js');
+        const urlParams = new URLSearchParams(window.location.search);
+
+        let playerId = '1';
+        let sessionId = 'init_session_id';
+
+        const status = (msg) => {
+            console.log('Status:', msg);
+            document.getElementById('status-msg').innerText = msg;
+        };
+
+        const BACK_URL = config.BACKEND_URL;
+        const hostname = new URL(BACK_URL).hostname;
+
+        window.AppData = { actual_focus_uid_entity: null };
+        window.gameWebSockets = {};
+
+        function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+        let app = null;
+        let shapes = {};
+        let objects = {};
+
+        class BasicDraw {
+            constructor(object) {
+                this.object = object;
+                this.shapeType = object['type'];
+                this.shape = null;
+            }
+            render(pixiApp) {
+                if (!this.shape) return;
+                const object = this.object;
+                const uid = object['uid'];
+
+                // Rimuovi eventuale oggetto duplicato con lo stesso UID per evitare "ghosting"
+                if (shapes[uid]) {
+                    pixiApp.stage.removeChild(shapes[uid]);
+                    if (typeof shapes[uid].destroy === 'function') shapes[uid].destroy();
+                    delete shapes[uid];
+                }
+
+                this.shape.renderable = object['attributes'] && object['attributes']['renderable'] !== undefined
+                    ? !!object['attributes']['renderable']
+                    : true;
+
+                if (object['attributes'] && object['attributes']['z_index'] !== undefined) {
+                    this.shape.zIndex = object['attributes']['z_index'];
+                }
+
+                pixiApp.stage.addChild(this.shape);
+                shapes[uid] = this.shape;
+                objects[uid] = this.object;
+                this.addInteractive();
+            }
+            addInteractive() {
+                const object = objects[this.object['uid']];
+                if (!object['attributes'] || !object['attributes']['interactives'] || object['attributes']['interactives']['count'] === 0) return;
+
+                this.shape.interactive = true;
+                this.shape.cursor = 'pointer';
+                const items = object['attributes']['interactives']['items'];
+
+                const targetShape = this.shape;
+                Object.entries(items).forEach(([event, strFunction]) => {
+                    const processedScript = strFunction
+                        .replace(/<script>/g, '')
+                        .replace(/<\/script>/g, '')
+                        .replace(/window\.location\.hostname/g, `'${hostname}'`);
+
+                    targetShape.on(event, () => {
+                        console.log(`Interaction: ${event} on ${object.uid}`);
+                        try {
+                            (function (object, shape, shapes, objects, AppData) {
+                                eval(processedScript);
+                            })(object, targetShape, shapes, objects, AppData);
+                        } catch (e) { console.error('Error executing interaction script:', e); }
+                    });
+                });
+            }
+        }
+
+        class Square extends BasicDraw {
+            constructor(object) { super(object); this.shape = new PIXI.Sprite(PIXI.Texture.WHITE); }
+            build() {
+                const object = this.object;
+                this.shape.width = object['size'];
+                this.shape.height = object['size'];
+                this.shape.x = object['x'];
+                this.shape.y = object['y'];
+                this.shape.tint = object['color'];
+            }
+        }
+
+        class Rectangle extends BasicDraw {
+            constructor(object) { super(object); this.shape = new PIXI.Sprite(PIXI.Texture.WHITE); }
+            build() {
+                const object = this.object;
+                this.shape.width = object['width'];
+                this.shape.height = object['height'];
+                this.shape.x = object['x'];
+                this.shape.y = object['y'];
+                this.shape.tint = object['color'];
+            }
+        }
+
+        class MultiLine extends BasicDraw {
+            constructor(object) { super(object); this.shape = new PIXI.Graphics(); }
+            build() {
+                const object = this.object;
+                const lineColor = object['color'];
+                const lineThickness = object['thickness'] || 1;
+                const points = object['points'];
+                this.shape.lineStyle(lineThickness, 0xFFFFFF);
+                this.shape.tint = lineColor;
+                if (points && points.length > 0) {
+                    this.shape.moveTo(points[0].x, points[0].y);
+                    for (let i = 1; i < points.length; i++) {
+                        this.shape.lineTo(points[i].x, points[i].y);
+                    }
+                }
+            }
+        }
+
+        class Circle extends BasicDraw {
+            constructor(object) { super(object); this.shape = new PIXI.Graphics(); }
+            build() {
+                const object = this.object;
+                this.shape.beginFill(0xFFFFFF);
+                this.shape.drawCircle(0, 0, object['radius']);
+                this.shape.endFill();
+                this.shape.tint = object['color'];
+                this.shape.x = object['x'];
+                this.shape.y = object['y'];
+            }
+        }
+
+        class Text extends BasicDraw {
+            constructor(object) { super(object); this.shape = new PIXI.Text('', {}); }
+            build() {
+                const object = this.object;
+                this.shape.x = object['x'];
+                this.shape.y = object['y'];
+                if (object['color'] !== null) {
+                    const hexValue = object['color'];
+                    this.shape.style.fill = '#' + hexValue.toString(16).padStart(6, '0');
+                }
+                this.shape.style.fontFamily = object['fontFamily'];
+                this.shape.style.fontSize = object['fontSize'];
+                this.shape.text = object['text'];
+                if (object['centerAnchor']) {
+                    this.shape.pivot.set(this.shape.width / 2, this.shape.height / 2);
+                }
+            }
+        }
+
+        function initPixi() {
+            app = new PIXI.Application({
+                width: window.innerWidth,
+                height: window.innerHeight,
+                backgroundColor: 0xFFFFFF,
+                antialias: true,
+                resolution: window.devicePixelRatio || 1,
+                autoDensity: true
+            });
+            document.getElementById('display_container').appendChild(app.view);
+            app.stage.sortableChildren = true;
+            window.addEventListener('resize', () => {
+                app.renderer.resize(window.innerWidth, window.innerHeight);
+            });
+        }
+
+        function drawSquare(object) { let d = new Square(object); d.build(); d.render(app); }
+        function drawRectangle(object) { let d = new Rectangle(object); d.build(); d.render(app); }
+        function drawMultiLine(object) { let d = new MultiLine(object); d.build(); d.render(app); }
+        function drawCircle(object) { let d = new Circle(object); d.build(); d.render(app); }
+        function drawText(object) { let d = new Text(object); d.build(); d.render(app); }
+
+        $(document).ready(function () {
+            initPixi();
+            status('PixiJS Avviato');
+
+            const pusher = new Pusher(config.PUSHER_KEY, {
+                cluster: config.PUSHER_CLUSTER,
+                forceTLS: true,
+                enabledTransports: ['ws', 'wss'],
+                activityTimeout: 10000,
+                pongTimeout: 5000
+            });
+
+            pusher.connection.bind('state_change', function (states) {
+                status('Pusher: ' + states.current);
+                if (states.current === 'unavailable' || states.current === 'disconnected') {
+                    setTimeout(() => pusher.connect(), 3000);
+                }
+            });
+
+            const channelName = 'player_' + playerId + '_channel';
+            let channel = pusher.subscribe(channelName);
+
+            const triggerInitialMap = () => {
+                status('Generazione login...');
+                $.ajax({
+                    url: `${BACK_URL}/api/game/login`,
+                    type: 'POST',
+                    data: { player_id: playerId },
+                    success: function () { status('Richiesta login inviata!'); },
+                    error: function (err) { status('Errore login'); console.error(err); }
+                });
+            };
+
+            channel.bind('pusher:subscription_succeeded', function () {
+                status('Connesso a Pusher.');
+                if (Object.keys(shapes).length === 0) {
+                    triggerInitialMap();
+                }
+            });
+
+            channel.bind('draw_interface', function (data) {
+                const r_id = data['request_id'];
+                const p_id = data['player_id'];
+                $.ajax({
+                    url: `${BACK_URL}/api/game/get_draw_item`,
+                    type: 'POST',
+                    data: {
+                        request_id: r_id,
+                        player_id: p_id,
+                        session_id: sessionId,
+                    },
+                    success: async function (result) {
+                        if (result.success) {
+                            for (const item of result.items) {
+                                let itemType = item['type'].toString();
+                                if (itemType === 'draw') {
+                                    let obj = item['object'];
+                                    if (obj.id === undefined) obj.id = obj.uid;
+                                    if (obj.type === 'square') drawSquare(obj);
+                                    else if (obj.type === 'rectangle') drawRectangle(obj);
+                                    else if (obj.type === 'multi_line') drawMultiLine(obj);
+                                    else if (obj.type === 'circle') drawCircle(obj);
+                                    else if (obj.type === 'text') drawText(obj);
+                                } else if (itemType === 'update') {
+                                    if (item.sleep) await sleep(item.sleep);
+                                    let shape = shapes[item.uid];
+                                    if (shape) {
+                                        Object.keys(item.attributes).forEach(key => {
+                                            if (key === 'color') {
+                                                shape.tint = item.attributes[key];
+                                            } else if (key === 'renderable') {
+                                                shape.renderable = !!item.attributes[key];
+                                            } else {
+                                                shape[key] = item.attributes[key];
+                                            }
+                                        });
+                                    }
+                                } else if (itemType === 'clear') {
+                                    let shape = shapes[item.uid];
+                                    if (shape) {
+                                        if (typeof shape.clear === 'function') shape.clear();
+                                        app.stage.removeChild(shape);
+                                        delete shapes[item.uid];
+                                    }
+                                }
+                            }
+                            // ALLA FINE DI OGNI DISEGNO FORZA IL RIORDINO
+                            app.stage.sortChildren();
+                        }
+                    },
+                    error: function (err) { status('Errore dati mappa'); console.error(err); }
+                });
+            });
+
+            $('#logout-btn').on('click', function () {
+                status('Logout in corso...');
+                $.ajax({
+                    url: `${BACK_URL}/api/auth/logout`,
+                    type: 'POST',
+                    data: { player_id: playerId },
+                    success: function () {
+                        status('Logout effettuato');
+                        ipcRenderer.send('logout');
+                    },
+                    error: function (err) {
+                        status('Errore logout');
+                        console.error(err);
+                    }
+                });
+            });
+        });
+    </script>
+</body>
+
+</html>

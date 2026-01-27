@@ -21,7 +21,7 @@ function createWindow() {
     mainWindow.webContents.openDevTools();
   }
 
-  mainWindow.loadFile('login.html');
+  mainWindow.loadFile('index.html');
 }
 
 app.whenReady().then(() => {
