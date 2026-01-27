@@ -93,6 +93,24 @@
 
         function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
+        function getFormData(fields) {
+            let datas = {};
+            for (let key in fields) {
+                if (key.startsWith('field_')) {
+                    let fieldName = key.substring(6);
+                    let fieldUid = fields[key];
+
+                    let fieldShapes = shapes[fieldUid];
+                    let fieldValue = fieldShapes ? fieldShapes.text : '';
+                    datas[fieldName] = fieldValue;
+                } else if (key.startsWith('static_')) {
+                    let fieldName = key.substring(7);
+                    datas[fieldName] = fields[key];
+                }
+            }
+            return datas;
+        }
+
         let app = null;
         let shapes = {};
         let objects = {};
