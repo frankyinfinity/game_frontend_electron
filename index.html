@@ -115,6 +115,91 @@
         let shapes = {};
         let objects = {};
 
+        window.pusher = null;
+        window.channel = null;
+
+        function bindChannelEvents(targetChannel) {
+            targetChannel.bind('pusher:subscription_succeeded', function () {
+                status('Connesso a Pusher: ' + targetChannel.name);
+                if (Object.keys(shapes).length === 0) {
+                    triggerInitialMap();
+                }
+            });
+
+            targetChannel.bind('draw_interface', function (data) {
+                const r_id = data['request_id'];
+                const p_id = data['player_id'];
+                $.ajax({
+                    url: `${BACK_URL}/api/game/get_draw_item`,
+                    type: 'POST',
+                    data: {
+                        request_id: r_id,
+                        player_id: p_id,
+                        session_id: sessionId,
+                    },
+                    success: async function (result) {
+                        if (result.success) {
+                            for (const item of result.items) {
+                                let itemType = item['type'].toString();
+                                if (itemType === 'draw') {
+                                    let obj = item['object'];
+                                    if (obj.id === undefined) obj.id = obj.uid;
+                                    if (obj.type === 'square') drawSquare(obj);
+                                    else if (obj.type === 'rectangle') drawRectangle(obj);
+                                    else if (obj.type === 'multi_line') drawMultiLine(obj);
+                                    else if (obj.type === 'circle') drawCircle(obj);
+                                    else if (obj.type === 'text') drawText(obj);
+                                } else if (itemType === 'update') {
+                                    if (item.sleep) await sleep(item.sleep);
+                                    let shape = shapes[item.uid];
+                                    if (shape) {
+                                        Object.keys(item.attributes).forEach(key => {
+                                            if (key === 'color') {
+                                                shape.tint = item.attributes[key];
+                                            } else if (key === 'renderable') {
+                                                shape.renderable = !!item.attributes[key];
+                                            } else {
+                                                shape[key] = item.attributes[key];
+                                            }
+                                        });
+                                    }
+                                } else if (itemType === 'clear') {
+                                    let shape = shapes[item.uid];
+                                    if (shape) {
+                                        if (typeof shape.clear === 'function') shape.clear();
+                                        app.stage.removeChild(shape);
+                                        delete shapes[item.uid];
+                                    }
+                                }
+                            }
+                            app.stage.sortChildren();
+                        }
+                    },
+                    error: function (err) { status('Errore dati mappa'); console.error(err); }
+                });
+            });
+        }
+
+        window.switchPlayerChannel = function (newPlayerId) {
+            if (window.channel) {
+                window.pusher.unsubscribe(window.channel.name);
+            }
+            const channelName = 'player_' + newPlayerId + '_channel';
+            window.channel = window.pusher.subscribe(channelName);
+            bindChannelEvents(window.channel);
+        };
+
+        const triggerInitialMap = () => {
+            status('Generazione login...');
+            $.ajax({
+                url: `${BACK_URL}/api/game/login`,
+                type: 'POST',
+                data: { player_id: playerId },
+                success: function () { status('Richiesta login inviata!'); },
+                error: function (err) { status('Errore login'); console.error(err); }
+            });
+        };
+
         class BasicDraw {
             constructor(object) {
                 this.object = object;
@@ -273,7 +358,7 @@
             initPixi();
             status('PixiJS Avviato');
 
-            const pusher = new Pusher(config.PUSHER_KEY, {
+            window.pusher = new Pusher(config.PUSHER_KEY, {
                 cluster: config.PUSHER_CLUSTER,
                 forceTLS: true,
                 enabledTransports: ['ws', 'wss'],
@@ -281,87 +366,15 @@
                 pongTimeout: 5000
             });
 
-            pusher.connection.bind('state_change', function (states) {
+            window.pusher.connection.bind('state_change', function (states) {
                 status('Pusher: ' + states.current);
                 if (states.current === 'unavailable' || states.current === 'disconnected') {
-                    setTimeout(() => pusher.connect(), 3000);
+                    setTimeout(() => window.pusher.connect(), 3000);
                 }
             });
 
-            const channelName = 'player_' + playerId + '_channel';
-            let channel = pusher.subscribe(channelName);
-
-            const triggerInitialMap = () => {
-                status('Generazione login...');
-                $.ajax({
-                    url: `${BACK_URL}/api/game/login`,
-                    type: 'POST',
-                    data: { player_id: playerId },
-                    success: function () { status('Richiesta login inviata!'); },
-                    error: function (err) { status('Errore login'); console.error(err); }
-                });
-            };
-
-            channel.bind('pusher:subscription_succeeded', function () {
-                status('Connesso a Pusher.');
-                if (Object.keys(shapes).length === 0) {
-                    triggerInitialMap();
-                }
-            });
-
-            channel.bind('draw_interface', function (data) {
-                const r_id = data['request_id'];
-                const p_id = data['player_id'];
-                $.ajax({
-                    url: `${BACK_URL}/api/game/get_draw_item`,
-                    type: 'POST',
-                    data: {
-                        request_id: r_id,
-                        player_id: p_id,
-                        session_id: sessionId,
-                    },
-                    success: async function (result) {
-                        if (result.success) {
-                            for (const item of result.items) {
-                                let itemType = item['type'].toString();
-                                if (itemType === 'draw') {
-                                    let obj = item['object'];
-                                    if (obj.id === undefined) obj.id = obj.uid;
-                                    if (obj.type === 'square') drawSquare(obj);
-                                    else if (obj.type === 'rectangle') drawRectangle(obj);
-                                    else if (obj.type === 'multi_line') drawMultiLine(obj);
-                                    else if (obj.type === 'circle') drawCircle(obj);
-                                    else if (obj.type === 'text') drawText(obj);
-                                } else if (itemType === 'update') {
-                                    if (item.sleep) await sleep(item.sleep);
-                                    let shape = shapes[item.uid];
-                                    if (shape) {
-                                        Object.keys(item.attributes).forEach(key => {
-                                            if (key === 'color') {
-                                                shape.tint = item.attributes[key];
-                                            } else if (key === 'renderable') {
-                                                shape.renderable = !!item.attributes[key];
-                                            } else {
-                                                shape[key] = item.attributes[key];
-                                            }
-                                        });
-                                    }
-                                } else if (itemType === 'clear') {
-                                    let shape = shapes[item.uid];
-                                    if (shape) {
-                                        if (typeof shape.clear === 'function') shape.clear();
-                                        app.stage.removeChild(shape);
-                                        delete shapes[item.uid];
-                                    }
-                                }
-                            }
-                            // ALLA FINE DI OGNI DISEGNO FORZA IL RIORDINO
-                            app.stage.sortChildren();
-                        }
-                    },
-                    error: function (err) { status('Errore dati mappa'); console.error(err); }
-                });
-            });
+            // Inizializza il canale per il playerId corrente
+            window.switchPlayerChannel(playerId);
 
             $('#logout-btn').on('click', function () {
                 status('Logout in corso...');
