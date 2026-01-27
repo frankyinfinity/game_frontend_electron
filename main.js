@@ -3,6 +3,7 @@ const path = require('path');
 const config = require('./config.js');
 
 let mainWindow;
+global.playerId = null;
 
 function createWindow() {
   mainWindow = new BrowserWindow({
@@ -22,6 +23,23 @@ function createWindow() {
   }
 
   mainWindow.loadFile('index.html');
+
+  mainWindow.on('close', async (e) => {
+    if (global.playerId) {
+      e.preventDefault();
+      const axios = require('axios');
+      try {
+        await axios.post(`${config.BACKEND_URL}/api/game/close`, {
+          player_id: global.playerId
+        });
+      } catch (error) {
+        console.error('Error sending close request:', error.message);
+      } finally {
+        global.playerId = null;
+        mainWindow.destroy();
+      }
+    }
+  });
 }
 
 app.whenReady().then(() => {
@@ -36,37 +54,12 @@ app.on('window-all-closed', function () {
   if (process.platform !== 'darwin') app.quit();
 });
 
-ipcMain.on('login-success', (event, loginData) => {
-  if (loginData && loginData.player && loginData.player.id) {
-    global.playerId = loginData.player.id;
-  }
-  mainWindow.loadFile('game.html', {
-    query: {
-      player: JSON.stringify(loginData.player),
-      session_id: loginData.session_id
-    }
-  });
+ipcMain.on('update-player-id', (event, id) => {
+  global.playerId = id;
+  console.log('Main process playerId updated to:', global.playerId);
 });
 
 ipcMain.on('logout', (event) => {
   global.playerId = null;
-  mainWindow.loadFile('login.html');
-});
-
-app.on('will-quit', async (e) => {
-  if (global.playerId) {
-    e.preventDefault(); // Previeni la chiusura immediata
-    const axios = require('axios');
-    try {
-      await axios.post(`${config.BACKEND_URL}/api/players/close`, {
-        player_id: global.playerId
-      });
-      console.log('Player close request sent successfully');
-    } catch (error) {
-      console.error('Error sending player close request:', error.message);
-    } finally {
-      global.playerId = null; // Evita loop infinito
-      app.quit(); // Procedi con la chiusura
-    }
-  }
+  mainWindow.loadFile('index.html');
 });
