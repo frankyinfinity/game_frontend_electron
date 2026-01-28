@@ -11,6 +11,7 @@
         "jquery": "^3.6.0"
     },
     "devDependencies": {
+        "@electron-forge/cli": "^7.11.1",
         "electron": "^31.0.0"
     }
 }
