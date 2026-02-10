@@ -62,7 +62,7 @@
     <div id="display_container"></div>
     <div id="status-msg">Inizializzazione...</div>
 
-    <script src="https://js.pusher.com/8.4.0/pusher.min.js"></script>
+    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
     <script>window.$ = window.jQuery = require('jquery');</script>
     <script>
@@ -117,18 +117,11 @@
         let shapes = {};
         let objects = {};
 
-        window.pusher = null;
-        window.channel = null;
+        window.socket = null;
+        window.currentChannel = null;
 
-        function bindChannelEvents(targetChannel) {
-            targetChannel.bind('pusher:subscription_succeeded', function () {
-                status('Connesso a Pusher: ' + targetChannel.name);
-                if (Object.keys(shapes).length === 0) {
-                    triggerInitialMap();
-                }
-            });
-
-            targetChannel.bind('draw_interface', function (data) {
+        function bindChannelEvents(channelName) {
+            window.socket.on('draw_interface', function (data) {
                 const r_id = data['request_id'];
                 const p_id = data['player_id'];
                 $.ajax({
@@ -185,12 +178,17 @@
         }
 
         window.switchPlayerChannel = function (newPlayerId) {
-            if (window.channel) {
-                window.pusher.unsubscribe(window.channel.name);
+            if (window.currentChannel) {
+                window.socket.emit('unsubscribe', { channel: window.currentChannel });
             }
             const channelName = 'player_' + newPlayerId + '_channel';
-            window.channel = window.pusher.subscribe(channelName);
-            bindChannelEvents(window.channel);
+            window.currentChannel = channelName;
+            window.socket.emit('subscribe', {
+                channel: channelName,
+                auth: {
+                    token: localStorage.getItem('auth_token') || null
+                }
+            });
         };
 
         const triggerInitialMap = () => {
@@ -413,21 +411,46 @@
 
         $(document).ready(function () {
             initPixi();
-            status('PixiJS Avviato');
+            status('PixiJS Avviato - Connessione a Socket.io...');
 
-            window.pusher = new Pusher(config.PUSHER_KEY, {
-                cluster: config.PUSHER_CLUSTER,
-                forceTLS: true,
-                enabledTransports: ['ws', 'wss'],
-                activityTimeout: 10000,
-                pongTimeout: 5000
+            window.socket = io(config.SOCKETIO_URL, {
+                transports: ['websocket', 'polling'],
+                reconnection: true,
+                reconnectionDelay: 1000,
+                reconnectionAttempts: Infinity
             });
 
-            window.pusher.connection.bind('state_change', function (states) {
-                status('Pusher: ' + states.current);
-                if (states.current === 'unavailable' || states.current === 'disconnected') {
-                    setTimeout(() => window.pusher.connect(), 3000);
+            window.socket.on('connect', function () {
+                status('Connesso a Socket.io');
+                console.log('Socket.io connected:', window.socket.id);
+
+                // Bind channel events
+                bindChannelEvents(window.currentChannel);
+
+                // Trigger initial map if no shapes
+                if (Object.keys(shapes).length === 0) {
+                    triggerInitialMap();
                 }
+            });
+
+            window.socket.on('subscription_succeeded', function (data) {
+                status('Sottoscritto al canale: ' + data.channel);
+                console.log('Subscribed to channel:', data.channel);
+            });
+
+            window.socket.on('subscription_error', function (data) {
+                status('Errore sottoscrizione: ' + data.error);
+                console.error('Subscription error:', data);
+            });
+
+            window.socket.on('disconnect', function (reason) {
+                status('Disconnesso da Socket.io: ' + reason);
+                console.log('Socket.io disconnected:', reason);
+            });
+
+            window.socket.on('connect_error', function (error) {
+                status('Errore connessione Socket.io: ' + error.message);
+                console.error('Socket.io connection error:', error);
             });
 
             // Inizializza il canale per il playerId corrente
