@@ -273,14 +273,20 @@
         }
 
         class Rectangle extends BasicDraw {
-            constructor(object) { super(object); this.shape = new PIXI.Sprite(PIXI.Texture.WHITE); }
+            constructor(object) { super(object); this.shape = new PIXI.Graphics(); }
             build() {
                 const object = this.object;
-                this.shape.width = object['width'];
-                this.shape.height = object['height'];
+                let color = object['color'] || 0xFFFFFF;
+                // Convert color number to hex if needed
+                if (typeof color === 'string' && color.startsWith('#')) {
+                    color = parseInt(color.slice(1), 16);
+                }
+                const radius = object['radius'] !== undefined ? object['radius'] : 8;
+                this.shape.beginFill(color);
+                this.shape.drawRoundedRect(0, 0, object['width'], object['height'], radius);
+                this.shape.endFill();
                 this.shape.x = object['x'];
                 this.shape.y = object['y'];
-                this.shape.tint = object['color'];
             }
         }
 
@@ -321,9 +327,17 @@
                 const object = this.object;
                 this.shape.x = object['x'];
                 this.shape.y = object['y'];
-                if (object['color'] !== null) {
-                    const hexValue = object['color'];
-                    this.shape.style.fill = '#' + hexValue.toString(16).padStart(6, '0');
+                if (object['color'] !== null && object['color'] !== undefined) {
+                    let colorValue = object['color'];
+                    // Handle different color formats
+                    if (typeof colorValue === 'string') {
+                        // Already a string, use as-is or add # if missing
+                        this.shape.style.fill = colorValue.startsWith('#') ? colorValue : '#' + colorValue;
+                    } else {
+                        // It's a number, convert to hex
+                        const hexValue = colorValue.toString(16).padStart(6, '0');
+                        this.shape.style.fill = '#' + hexValue;
+                    }
                 }
                 this.shape.style.fontFamily = object['fontFamily'];
                 this.shape.style.fontSize = object['fontSize'];
