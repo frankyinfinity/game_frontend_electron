@@ -227,6 +227,68 @@
         window.socket = null;
         window.currentChannel = null;
 
+        async function processDrawItems(items) {
+            for (const item of items) {
+                let itemType = item['type'].toString();
+                if (itemType === 'draw') {
+                    let obj = item['object'];
+                    if (obj.id === undefined) obj.id = obj.uid;
+                    if (obj.type === 'square') drawSquare(obj);
+                    else if (obj.type === 'rectangle') drawRectangle(obj);
+                    else if (obj.type === 'multi_line') drawMultiLine(obj);
+                    else if (obj.type === 'circle') drawCircle(obj);
+                    else if (obj.type === 'text') drawText(obj);
+                    else if (obj.type === 'image') await drawImage(obj);
+                } else if (itemType === 'update') {
+                    if (item.sleep) await sleep(item.sleep);
+                    let shape = shapes[item.uid];
+                    if (shape) {
+                        Object.keys(item.attributes).forEach(key => {
+                            if (key === 'color') {
+                                shape.tint = item.attributes[key];
+                            } else if (key === 'renderable') {
+                                shape.renderable = !!item.attributes[key];
+                            } else {
+                                shape[key] = item.attributes[key];
+                            }
+                        });
+                    }
+                } else if (itemType === 'clear') {
+                    if (modalViewportMasks[item.uid]) {
+                        const mask = modalViewportMasks[item.uid];
+                        if (mask.parent) {
+                            mask.parent.removeChild(mask);
+                        }
+                        if (typeof mask.destroy === 'function') {
+                            mask.destroy();
+                        }
+                        delete modalViewportMasks[item.uid];
+                    }
+                    let shape = shapes[item.uid];
+                    if (shape) {
+                        if (typeof shape.clear === 'function') shape.clear();
+                        app.stage.removeChild(shape);
+                        delete shapes[item.uid];
+                    }
+                    delete objects[item.uid];
+                }
+            }
+        }
+
+        function resetPlayerValues(playerId) {
+            return new Promise((resolve) => {
+                $.ajax({
+                    url: `${BACK_URL}/api/auth/game/player_values/reset`,
+                    type: 'POST',
+                    data: { player_id: playerId },
+                    complete: function () { resolve(); },
+                    error: function (err) {
+                        console.error('Errore reset player values:', err);
+                    }
+                });
+            });
+        }
+
         function bindChannelEvents(channelName) {
             window.socket.on('draw_interface', function (data) {
                 const r_id = data['request_id'];
@@ -241,54 +303,12 @@
                     },
                     success: async function (result) {
                         if (result.success) {
-                            for (const item of result.items) {
-                                let itemType = item['type'].toString();
-                                if (itemType === 'draw') {
-                                    let obj = item['object'];
-                                    if (obj.id === undefined) obj.id = obj.uid;
-                                    if (obj.type === 'square') drawSquare(obj);
-                                    else if (obj.type === 'rectangle') drawRectangle(obj);
-                                    else if (obj.type === 'multi_line') drawMultiLine(obj);
-                                    else if (obj.type === 'circle') drawCircle(obj);
-                                    else if (obj.type === 'text') drawText(obj);
-                                    else if (obj.type === 'image') await drawImage(obj);
-                                } else if (itemType === 'update') {
-                                    if (item.sleep) await sleep(item.sleep);
-                                    let shape = shapes[item.uid];
-                                    if (shape) {
-                                        Object.keys(item.attributes).forEach(key => {
-                                            if (key === 'color') {
-                                                shape.tint = item.attributes[key];
-                                            } else if (key === 'renderable') {
-                                                shape.renderable = !!item.attributes[key];
-                                            } else {
-                                                shape[key] = item.attributes[key];
-                                            }
-                                        });
-                                    }
-                                } else if (itemType === 'clear') {
-                                    if (modalViewportMasks[item.uid]) {
-                                        const mask = modalViewportMasks[item.uid];
-                                        if (mask.parent) {
-                                            mask.parent.removeChild(mask);
-                                        }
-                                        if (typeof mask.destroy === 'function') {
-                                            mask.destroy();
-                                        }
-                                        delete modalViewportMasks[item.uid];
-                                    }
-                                    let shape = shapes[item.uid];
-                                    if (shape) {
-                                        if (typeof shape.clear === 'function') shape.clear();
-                                        app.stage.removeChild(shape);
-                                        delete shapes[item.uid];
-                                    }
-                                    delete objects[item.uid];
-                                }
-                            }
+                            await processDrawItems(result.items || []);
                             refreshAllModalViewportMasks();
                             reapplyOpenModalsState();
                             app.stage.sortChildren();
+                            await new Promise((resolve) => requestAnimationFrame(resolve));
+                            await resetPlayerValues(p_id);
                         }
                     },
                     error: function (err) { status('Errore dati mappa'); console.error(err); }
