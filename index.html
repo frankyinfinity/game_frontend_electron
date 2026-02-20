@@ -92,8 +92,115 @@
 
         window.AppData = { actual_focus_uid_entity: null };
         window.gameWebSockets = {};
+        let modalViewportMasks = {};
 
         function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+        function ensureModalViewportMask(viewportUid) {
+            const viewportObject = objects[viewportUid];
+            const viewportShape = shapes[viewportUid];
+            if (!viewportObject || !viewportShape || !viewportObject.attributes) return;
+
+            const attrs = viewportObject.attributes;
+            const childUids = Array.isArray(attrs.scroll_child_uids) ? attrs.scroll_child_uids : [];
+            if (childUids.length === 0) return;
+
+            const width = viewportObject.width || 0;
+            const height = viewportObject.height || 0;
+            const x = viewportObject.x || 0;
+            const y = viewportObject.y || 0;
+            if (width <= 0 || height <= 0) return;
+
+            let mask = modalViewportMasks[viewportUid];
+            if (!mask) {
+                mask = new PIXI.Graphics();
+                mask.renderable = true;
+                mask.alpha = 0;
+                modalViewportMasks[viewportUid] = mask;
+                const parentLayer = viewportShape.parent || app.stage;
+                parentLayer.addChild(mask);
+            }
+
+            mask.clear();
+            mask.beginFill(0xFFFFFF);
+            mask.drawRect(0, 0, width, height);
+            mask.endFill();
+            mask.x = x;
+            mask.y = y;
+
+            childUids.forEach((childUid) => {
+                if (shapes[childUid]) {
+                    shapes[childUid].mask = mask;
+                }
+            });
+        }
+
+        function refreshAllModalViewportMasks() {
+            Object.keys(objects).forEach((uid) => {
+                const obj = objects[uid];
+                if (obj && obj.attributes && Array.isArray(obj.attributes.scroll_child_uids)) {
+                    ensureModalViewportMask(uid);
+                }
+            });
+        }
+        window.refreshAllModalViewportMasks = refreshAllModalViewportMasks;
+
+        function applyModalOpenState(modalUid) {
+            const viewportUid = modalUid + '_content_viewport';
+            const idsToAlwaysShow = [
+                modalUid + '_body',
+                modalUid + '_header',
+                modalUid + '_title',
+                modalUid + '_close_button',
+                modalUid + '_close_text',
+                viewportUid,
+            ];
+
+            idsToAlwaysShow.forEach((uid) => {
+                if (shapes[uid]) shapes[uid].renderable = true;
+                if (objects[uid] && objects[uid].attributes) {
+                    objects[uid].attributes.renderable = true;
+                }
+            });
+
+            const viewportObject = objects[viewportUid];
+            if (viewportObject && viewportObject.attributes && Array.isArray(viewportObject.attributes.scroll_child_uids)) {
+                const initialRenderables = (viewportObject.attributes.scroll_initial_renderables && typeof viewportObject.attributes.scroll_initial_renderables === 'object')
+                    ? viewportObject.attributes.scroll_initial_renderables
+                    : {};
+                const childUids = viewportObject.attributes.scroll_child_uids;
+                const isPanelUid = (uid) => typeof uid === 'string' && uid.indexOf('_container_panel') !== -1;
+                const hasVisibleBaseContent = childUids.some((uid) => {
+                    if (isPanelUid(uid)) return false;
+                    return initialRenderables[uid] === undefined ? true : !!initialRenderables[uid];
+                });
+
+                childUids.forEach((uid) => {
+                    let shouldShow = initialRenderables[uid] === undefined ? true : !!initialRenderables[uid];
+                    if (!hasVisibleBaseContent) {
+                        shouldShow = !isPanelUid(uid);
+                    }
+                    if (isPanelUid(uid)) {
+                        shouldShow = !!(objects[uid] && objects[uid].attributes && objects[uid].attributes.renderable);
+                    }
+                    if (shapes[uid]) shapes[uid].renderable = shouldShow;
+                    if (objects[uid] && objects[uid].attributes) {
+                        objects[uid].attributes.renderable = shouldShow;
+                    }
+                });
+            }
+        }
+
+        function reapplyOpenModalsState() {
+            const openModals = (window.AppData && window.AppData.open_modals) ? window.AppData.open_modals : {};
+            Object.keys(openModals).forEach((modalUid) => {
+                if (openModals[modalUid]) {
+                    applyModalOpenState(modalUid);
+                }
+            });
+            refreshAllModalViewportMasks();
+        }
+        window.reapplyOpenModalsState = reapplyOpenModalsState;
 
         function getFormData(fields) {
             let datas = {};
@@ -160,6 +267,16 @@
                                         });
                                     }
                                 } else if (itemType === 'clear') {
+                                    if (modalViewportMasks[item.uid]) {
+                                        const mask = modalViewportMasks[item.uid];
+                                        if (mask.parent) {
+                                            mask.parent.removeChild(mask);
+                                        }
+                                        if (typeof mask.destroy === 'function') {
+                                            mask.destroy();
+                                        }
+                                        delete modalViewportMasks[item.uid];
+                                    }
                                     let shape = shapes[item.uid];
                                     if (shape) {
                                         if (typeof shape.clear === 'function') shape.clear();
@@ -169,6 +286,8 @@
                                     delete objects[item.uid];
                                 }
                             }
+                            refreshAllModalViewportMasks();
+                            reapplyOpenModalsState();
                             app.stage.sortChildren();
                         }
                     },
@@ -248,12 +367,12 @@
                         .replace(/<\/script>/g, '')
                         .replace(/window\.location\.hostname/g, `'${hostname}'`);
 
-                    targetShape.on(event, () => {
+                    targetShape.on(event, (evt) => {
                         console.log(`Interaction: ${event} on ${object.uid}`);
                         try {
-                            (function (object, shape, shapes, objects, AppData) {
+                            (function (object, shape, shapes, objects, AppData, event) {
                                 eval(processedScript);
-                            })(object, targetShape, shapes, objects, AppData);
+                            })(object, targetShape, shapes, objects, AppData, evt);
                         } catch (e) { console.error('Error executing interaction script:', e); }
                     });
                 });
