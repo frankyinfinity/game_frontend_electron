@@ -191,11 +191,39 @@
             }
         }
 
+        function applyModalClosedState(modalUid) {
+            const viewportUid = modalUid + '_content_viewport';
+            const idsToHide = [
+                modalUid + '_body',
+                modalUid + '_header',
+                modalUid + '_title',
+                modalUid + '_close_button',
+                modalUid + '_close_text',
+                viewportUid,
+            ];
+
+            const viewportObject = objects[viewportUid];
+            if (viewportObject && viewportObject.attributes && Array.isArray(viewportObject.attributes.scroll_child_uids)) {
+                viewportObject.attributes.scroll_child_uids.forEach((uid) => {
+                    idsToHide.push(uid);
+                });
+            }
+
+            idsToHide.forEach((uid) => {
+                if (shapes[uid]) shapes[uid].renderable = false;
+                if (objects[uid] && objects[uid].attributes) {
+                    objects[uid].attributes.renderable = false;
+                }
+            });
+        }
+
         function reapplyOpenModalsState() {
             const openModals = (window.AppData && window.AppData.open_modals) ? window.AppData.open_modals : {};
             Object.keys(openModals).forEach((modalUid) => {
                 if (openModals[modalUid]) {
                     applyModalOpenState(modalUid);
+                } else {
+                    applyModalClosedState(modalUid);
                 }
             });
             refreshAllModalViewportMasks();
