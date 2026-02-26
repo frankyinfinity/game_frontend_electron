@@ -90,7 +90,7 @@
         const BACK_URL = config.BACKEND_URL;
         const hostname = new URL(BACK_URL).hostname;
 
-        window.AppData = { actual_focus_uid_entity: null };
+        window.AppData = { actual_focus_uid_entity: null, map_offset_x: 0, map_offset_y: 0 };
         window.gameWebSockets = {};
         let modalViewportMasks = {};
         let mapViewportMask = null;
@@ -113,6 +113,31 @@
 
         function isMapUiUid(uid) {
             return uid.indexOf('appbar') === 0 || uid.indexOf('modal_') === 0 || uid.indexOf('_score_') !== -1 || MAP_NAV_UIDS.includes(uid);
+        }
+
+        function isLikelyMapObject(uid, obj) {
+            if (!uid || !obj || isMapUiUid(uid)) return false;
+            if (mapObjectUids.has(uid)) return true;
+            const minY = getObjectMinYForMap(obj);
+            return minY !== null && minY >= MAP_START_Y;
+        }
+
+        function applyCurrentMapOffsetToObject(obj) {
+            const offsetX = parseInt(AppData.map_offset_x || 0, 10);
+            const offsetY = parseInt(AppData.map_offset_y || 0, 10);
+            if (!offsetX && !offsetY) return obj;
+
+            if (obj.type === 'multi_line' && Array.isArray(obj.points)) {
+                obj.points = obj.points.map((point) => ({
+                    x: point.x + offsetX,
+                    y: point.y + offsetY
+                }));
+                return obj;
+            }
+
+            if (typeof obj.x === 'number') obj.x += offsetX;
+            if (typeof obj.y === 'number') obj.y += offsetY;
+            return obj;
         }
 
         function ensureMapViewportMask() {
@@ -389,6 +414,10 @@
                 if (itemType === 'draw') {
                     let obj = item['object'];
                     if (obj.id === undefined) obj.id = obj.uid;
+                    if (isLikelyMapObject(obj.uid, obj)) {
+                        obj = applyCurrentMapOffsetToObject(obj);
+                        mapObjectUids.add(obj.uid);
+                    }
                     if (obj.type === 'square') drawSquare(obj);
                     else if (obj.type === 'rectangle') drawRectangle(obj);
                     else if (obj.type === 'multi_line') drawMultiLine(obj);
@@ -398,14 +427,42 @@
                 } else if (itemType === 'update') {
                     if (item.sleep) await sleep(item.sleep);
                     let shape = shapes[item.uid];
+                    let object = objects[item.uid];
                     if (shape) {
+                        const isMapObject = isLikelyMapObject(item.uid, object);
                         Object.keys(item.attributes).forEach(key => {
                             if (key === 'color') {
                                 shape.tint = item.attributes[key];
+                                if (object) object.color = item.attributes[key];
                             } else if (key === 'renderable') {
                                 shape.renderable = !!item.attributes[key];
+                                if (object) {
+                                    object.attributes = object.attributes || {};
+                                    object.attributes.renderable = !!item.attributes[key];
+                                }
                             } else {
-                                shape[key] = item.attributes[key];
+                                let value = item.attributes[key];
+                                if (isMapObject && key === 'x') {
+                                    value = value + parseInt(AppData.map_offset_x || 0, 10);
+                                } else if (isMapObject && key === 'y') {
+                                    value = value + parseInt(AppData.map_offset_y || 0, 10);
+                                } else if (isMapObject && key === 'points' && Array.isArray(value) && typeof shape.clear === 'function') {
+                                    const offsetX = parseInt(AppData.map_offset_x || 0, 10);
+                                    const offsetY = parseInt(AppData.map_offset_y || 0, 10);
+                                    value = value.map((point) => ({ x: point.x + offsetX, y: point.y + offsetY }));
+                                    shape.clear();
+                                    shape.lineStyle(object?.thickness || 1, 0xFFFFFF);
+                                    shape.tint = object?.color;
+                                    if (value.length > 0) {
+                                        shape.moveTo(value[0].x, value[0].y);
+                                        for (let i = 1; i < value.length; i++) {
+                                            shape.lineTo(value[i].x, value[i].y);
+                                        }
+                                    }
+                                }
+
+                                shape[key] = value;
+                                if (object) object[key] = value;
                             }
                         });
                     }
