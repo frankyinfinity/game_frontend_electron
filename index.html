@@ -93,6 +93,134 @@
         window.AppData = { actual_focus_uid_entity: null };
         window.gameWebSockets = {};
         let modalViewportMasks = {};
+        let mapViewportMask = null;
+        const MAP_START_Y = 80;
+        const MAP_NAV_UIDS = ['map_nav_up', 'map_nav_left', 'map_nav_down', 'map_nav_right'];
+        const mapObjectUids = new Set();
+
+        function getObjectMinYForMap(obj) {
+            if (!obj) return null;
+            if (obj.type === 'multi_line' && Array.isArray(obj.points) && obj.points.length > 0) {
+                let minY = obj.points[0].y;
+                for (let i = 1; i < obj.points.length; i++) {
+                    if (obj.points[i].y < minY) minY = obj.points[i].y;
+                }
+                return minY;
+            }
+            if (typeof obj.y === 'number') return obj.y;
+            return null;
+        }
+
+        function isMapUiUid(uid) {
+            return uid.indexOf('appbar') === 0 || uid.indexOf('modal_') === 0 || uid.indexOf('_score_') !== -1 || MAP_NAV_UIDS.includes(uid);
+        }
+
+        function ensureMapViewportMask() {
+            if (!app || !app.stage || !app.renderer) return;
+            if (!mapViewportMask) {
+                mapViewportMask = new PIXI.Graphics();
+                app.stage.addChild(mapViewportMask);
+            }
+            mapViewportMask.clear();
+            mapViewportMask.beginFill(0xFFFFFF);
+            mapViewportMask.drawRect(0, MAP_START_Y, app.renderer.width, Math.max(0, app.renderer.height - MAP_START_Y));
+            mapViewportMask.endFill();
+            mapViewportMask.renderable = false;
+            mapViewportMask.zIndex = -999999;
+        }
+
+        function refreshMapClipping() {
+            ensureMapViewportMask();
+            if (!mapViewportMask) return;
+
+            Object.keys(objects).forEach((uid) => {
+                if (isMapUiUid(uid)) return;
+                const obj = objects[uid];
+                if (!obj) return;
+                const minY = getObjectMinYForMap(obj);
+                if (minY !== null && minY >= MAP_START_Y) {
+                    mapObjectUids.add(uid);
+                }
+            });
+
+            mapObjectUids.forEach((uid) => {
+                if (isMapUiUid(uid)) return;
+                const shape = shapes[uid];
+                if (shape) {
+                    shape.mask = mapViewportMask;
+                }
+            });
+        }
+
+        function setObjectShapePosition(uid, x, y) {
+            const obj = objects[uid];
+            const shape = shapes[uid];
+            if (!obj || !shape) return;
+
+            const oldX = typeof obj.x === 'number' ? obj.x : x;
+            const oldY = typeof obj.y === 'number' ? obj.y : y;
+            const dx = x - oldX;
+            const dy = y - oldY;
+
+            obj.x = x;
+            obj.y = y;
+            shape.x = x;
+            shape.y = y;
+
+            const childUids = Array.isArray(obj.children) ? obj.children : [];
+            childUids.forEach((childUid) => {
+                const childObj = objects[childUid];
+                const childShape = shapes[childUid];
+                if (!childObj || !childShape) return;
+
+                if (typeof childObj.x === 'number') {
+                    childObj.x += dx;
+                    childShape.x += dx;
+                }
+                if (typeof childObj.y === 'number') {
+                    childObj.y += dy;
+                    childShape.y += dy;
+                }
+            });
+        }
+
+        function ensureMapNavButtonsPositionAndZIndex() {
+            if (!app || !app.renderer) return;
+
+            const margin = 12;
+            const gap = 6;
+            const buttonSize = 34;
+            const appbarHeight = 80;
+            const topBaseY = appbarHeight + margin + buttonSize + gap;
+            const positions = {
+                map_nav_up: { x: margin + buttonSize + gap, y: topBaseY - buttonSize - gap },
+                map_nav_left: { x: margin, y: topBaseY },
+                map_nav_down: { x: margin + buttonSize + gap, y: topBaseY },
+                map_nav_right: { x: margin + ((buttonSize + gap) * 2), y: topBaseY }
+            };
+
+            MAP_NAV_UIDS.forEach((uid) => {
+                if (!objects[uid] || !shapes[uid]) return;
+                const target = positions[uid];
+                if (!target) return;
+
+                setObjectShapePosition(uid, target.x, target.y);
+
+                if (!objects[uid].attributes) objects[uid].attributes = {};
+                objects[uid].attributes.z_index = 999999;
+                shapes[uid].zIndex = 999999;
+
+                const childUids = Array.isArray(objects[uid].children) ? objects[uid].children : [];
+                childUids.forEach((childUid) => {
+                    if (!objects[childUid] || !shapes[childUid]) return;
+                    if (!objects[childUid].attributes) objects[childUid].attributes = {};
+                    objects[childUid].attributes.z_index = 999999;
+                    shapes[childUid].zIndex = 999999;
+                });
+            });
+
+            app.stage.sortChildren();
+        }
 
         function sleep(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
 
@@ -282,7 +410,7 @@
                         });
                     }
                 } else if (itemType === 'clear') {
-                    if (modalViewportMasks[item.uid]) {
+                if (modalViewportMasks[item.uid]) {
                         const mask = modalViewportMasks[item.uid];
                         if (mask.parent) {
                             mask.parent.removeChild(mask);
@@ -299,6 +427,7 @@
                         delete shapes[item.uid];
                     }
                     delete objects[item.uid];
+                    mapObjectUids.delete(item.uid);
                 }
             }
         }
@@ -333,7 +462,9 @@
                         if (result.success) {
                             await processDrawItems(result.items || []);
                             refreshAllModalViewportMasks();
+                            refreshMapClipping();
                             reapplyOpenModalsState();
+                            ensureMapNavButtonsPositionAndZIndex();
                             app.stage.sortChildren();
                             await new Promise((resolve) => requestAnimationFrame(resolve));
                             await resetPlayerValues(p_id);
@@ -580,6 +711,8 @@
             app.stage.sortableChildren = true;
             window.addEventListener('resize', () => {
                 app.renderer.resize(window.innerWidth, window.innerHeight);
+                refreshMapClipping();
+                ensureMapNavButtonsPositionAndZIndex();
             });
         }
 
