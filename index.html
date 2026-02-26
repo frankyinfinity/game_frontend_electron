@@ -157,6 +157,7 @@
             const appbarHeight = 80;
             const topBaseY = appbarHeight + margin + buttonSize + gap;
             const positions = {
+                map_nav_container: { x: margin - 8, y: topBaseY - buttonSize - gap - 8 },
                 map_nav_up: { x: margin + buttonSize + gap, y: topBaseY - buttonSize - gap },
                 map_nav_left: { x: margin, y: topBaseY },
                 map_nav_down: { x: margin + buttonSize + gap, y: topBaseY },
@@ -175,15 +176,16 @@
                 setObjectShapePosition(uid, target.x, target.y);
 
                 if (!objects[uid].attributes) objects[uid].attributes = {};
-                objects[uid].attributes.z_index = 999999;
-                shapes[uid].zIndex = 999999;
+                const targetZ = uid === 'map_nav_container' ? 14999 : 15000;
+                objects[uid].attributes.z_index = targetZ;
+                shapes[uid].zIndex = targetZ;
 
                 const childUids = Array.isArray(objects[uid].children) ? objects[uid].children : [];
                 childUids.forEach((childUid) => {
                     if (!objects[childUid] || !shapes[childUid]) return;
                     if (!objects[childUid].attributes) objects[childUid].attributes = {};
-                    objects[childUid].attributes.z_index = 999999;
-                    shapes[childUid].zIndex = 999999;
+                    objects[childUid].attributes.z_index = 15000;
+                    shapes[childUid].zIndex = 15000;
                 });
             });
 
@@ -542,6 +544,9 @@
 
                 if (object['attributes'] && object['attributes']['z_index'] !== undefined) {
                     this.shape.zIndex = object['attributes']['z_index'];
+                }
+                if (object['attributes'] && object['attributes']['alpha'] !== undefined) {
+                    this.shape.alpha = object['attributes']['alpha'];
                 }
 
                 pixiApp.stage.addChild(this.shape);
