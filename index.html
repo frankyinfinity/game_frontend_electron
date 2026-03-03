@@ -350,6 +350,15 @@
         let shapes = {};
         let objects = {};
 
+        function runBackendCode(code) {
+            if (typeof code !== 'string' || code.trim() === '') return;
+            try {
+                (new Function('app', 'shapes', 'objects', 'AppData', code))(app, shapes, objects, AppData);
+            } catch (error) {
+                console.error('Error executing backend code item:', error);
+            }
+        }
+
         window.socket = null;
         window.currentChannel = null;
 
@@ -448,6 +457,9 @@
                         delete shapes[item.uid];
                     }
                     delete objects[item.uid];
+                } else if (itemType === 'code') {
+                    if (item.sleep) await sleep(item.sleep);
+                    runBackendCode(item.code);
                 }
             }
         }
@@ -602,7 +614,13 @@
                 if (typeof color === 'string' && color.startsWith('#')) {
                     color = parseInt(color.slice(1), 16);
                 }
-                const radius = object['radius'] !== undefined ? object['radius'] : 8;
+                const uid = (object['uid'] || '').toString();
+                const isProgressBar = uid.includes('_progress_bar_') || uid.includes('gene_progress_');
+                const radius = isProgressBar
+                    ? 0
+                    : (object['borderRadius'] !== undefined
+                        ? object['borderRadius']
+                        : (object['radius'] !== undefined ? object['radius'] : 8));
                 this.shape.beginFill(color);
                 this.shape.drawRoundedRect(0, 0, object['width'], object['height'], radius);
                 this.shape.endFill();
