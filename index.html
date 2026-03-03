@@ -90,6 +90,7 @@
         };
 
         const BACK_URL = config.BACKEND_URL;
+        window.BACK_URL = BACK_URL;
         const hostname = new URL(BACK_URL).hostname;
 
         window.AppData = { actual_focus_uid_entity: null, scroll_groups: {} };
