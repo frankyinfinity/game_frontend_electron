@@ -354,7 +354,7 @@
         function runBackendCode(code) {
             if (typeof code !== 'string' || code.trim() === '') return;
             try {
-                (new Function('app', 'shapes', 'objects', 'AppData', code))(app, shapes, objects, AppData);
+                eval(code);
             } catch (error) {
                 console.error('Error executing backend code item:', error);
             }
@@ -589,7 +589,6 @@
                         .replace(/window\.location\.hostname/g, `'${hostname}'`);
 
                     targetShape.on(event, (evt) => {
-                        console.log(`Interaction: ${event} on ${object.uid}`);
                         try {
                             (function (object, shape, shapes, objects, AppData, event) {
                                 eval(processedScript);
