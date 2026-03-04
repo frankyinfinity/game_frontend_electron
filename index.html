@@ -362,6 +362,38 @@
 
         window.socket = null;
         window.currentChannel = null;
+        let drawEventQueue = Promise.resolve();
+
+        function fetchDrawItems(requestId, playerIdFromEvent) {
+            return new Promise((resolve, reject) => {
+                $.ajax({
+                    url: `${BACK_URL}/api/game/get_draw_item`,
+                    type: 'POST',
+                    data: {
+                        request_id: requestId,
+                        player_id: playerIdFromEvent,
+                        session_id: sessionId,
+                    },
+                    success: function (result) { resolve(result); },
+                    error: function (err) { reject(err); }
+                });
+            });
+        }
+
+        async function processDrawInterfaceEvent(data) {
+            const r_id = data['request_id'];
+            const p_id = data['player_id'];
+            const result = await fetchDrawItems(r_id, p_id);
+            if (result.success) {
+                await processDrawItems(result.items || []);
+                refreshAllModalViewportMasks();
+                runScrollClipping();
+                reapplyOpenModalsState();
+                ensureMapNavButtonsPositionAndZIndex();
+                app.stage.sortChildren();
+                await new Promise((resolve) => requestAnimationFrame(resolve));
+            }
+        }
 
         async function processDrawItems(items) {
             for (const item of items) {
@@ -441,7 +473,7 @@
                         });
                     }
                 } else if (itemType === 'clear') {
-                if (modalViewportMasks[item.uid]) {
+                    if (modalViewportMasks[item.uid]) {
                         const mask = modalViewportMasks[item.uid];
                         if (mask.parent) {
                             mask.parent.removeChild(mask);
@@ -462,49 +494,23 @@
                     if (item.sleep) await sleep(item.sleep);
                     runBackendCode(item.code);
                 }
+
             }
         }
 
-        function resetPlayerValues(playerId) {
-            return new Promise((resolve) => {
-                $.ajax({
-                    url: `${BACK_URL}/api/auth/game/player_values/reset`,
-                    type: 'POST',
-                    data: { player_id: playerId },
-                    complete: function () { resolve(); },
-                    error: function (err) {
-                        console.error('Errore reset player values:', err);
-                    }
-                });
-            });
-        }
-
         function bindChannelEvents(channelName) {
+            // Avoid duplicated listeners on reconnect: duplicates can break action ordering.
+            if (window.socket && typeof window.socket.off === 'function') {
+                window.socket.off('draw_interface');
+            }
+
             window.socket.on('draw_interface', function (data) {
-                const r_id = data['request_id'];
-                const p_id = data['player_id'];
-                $.ajax({
-                    url: `${BACK_URL}/api/game/get_draw_item`,
-                    type: 'POST',
-                    data: {
-                        request_id: r_id,
-                        player_id: p_id,
-                        session_id: sessionId,
-                    },
-                    success: async function (result) {
-                        if (result.success) {
-                            await processDrawItems(result.items || []);
-                            refreshAllModalViewportMasks();
-                            runScrollClipping();
-                            reapplyOpenModalsState();
-                            ensureMapNavButtonsPositionAndZIndex();
-                            app.stage.sortChildren();
-                            await new Promise((resolve) => requestAnimationFrame(resolve));
-                            await resetPlayerValues(p_id);
-                        }
-                    },
-                    error: function (err) { status('Errore dati mappa'); console.error(err); }
-                });
+                drawEventQueue = drawEventQueue
+                    .then(() => processDrawInterfaceEvent(data))
+                    .catch((err) => {
+                        status('Errore dati mappa');
+                        console.error(err);
+                    });
             });
         }
 
