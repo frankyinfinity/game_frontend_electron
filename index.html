@@ -62,7 +62,7 @@
     <div id="display_container"></div>
     <div id="status-msg">Inizializzazione...</div>
 
-    <script src="https://cdn.socket.io/4.7.4/socket.io.min.js"></script>
+    <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
     <script>window.$ = window.jQuery = require('jquery');</script>
     <script>
@@ -360,63 +360,46 @@
             }
         }
 
-        window.socket = null;
+        window.pusher = null;
         window.currentChannel = null;
         let drawEventQueue = Promise.resolve();
 
-        function fetchDrawItems(requestId, playerIdFromEvent) {
-            return new Promise((resolve, reject) => {
-                $.ajax({
-                    url: `${BACK_URL}/api/game/get_draw_item`,
-                    type: 'POST',
-                    data: {
-                        request_id: requestId,
-                        player_id: playerIdFromEvent,
-                        session_id: sessionId,
-                    },
-                    success: function (result) { resolve(result); },
-                    error: function (err) { reject(err); }
-                });
-            });
-        }
-
         async function processDrawInterfaceEvent(data) {
-            const r_id = data['request_id'];
-            const p_id = data['player_id'];
-            const result = await fetchDrawItems(r_id, p_id);
-            if (result.success) {
-                let items = result.items || [];
-                if (typeof items === 'string' || items instanceof String) {
+            let items = data && data.items ? data.items : null;
+            if (!items) {
+                console.warn('draw_interface missing items payload');
+                return;
+            }
+            if (typeof items === 'string' || items instanceof String) {
+                try {
+                    items = JSON.parse(items);
+                } catch (error) {
+                    console.error('Error parsing draw items JSON:', error);
+                    items = [];
+                }
+            }
+            if (!Array.isArray(items)) {
+                const maybeJson = (items !== null && items !== undefined) ? String(items).trim() : '';
+                if (maybeJson.startsWith('[') || maybeJson.startsWith('{')) {
                     try {
-                        items = JSON.parse(items);
+                        items = JSON.parse(maybeJson);
                     } catch (error) {
                         console.error('Error parsing draw items JSON:', error);
                         items = [];
                     }
                 }
-                if (!Array.isArray(items)) {
-                    const maybeJson = (items !== null && items !== undefined) ? String(items).trim() : '';
-                    if (maybeJson.startsWith('[') || maybeJson.startsWith('{')) {
-                        try {
-                            items = JSON.parse(maybeJson);
-                        } catch (error) {
-                            console.error('Error parsing draw items JSON:', error);
-                            items = [];
-                        }
-                    }
-                }
-                if (!Array.isArray(items)) {
-                    console.warn('Draw items is not an array:', items);
-                    items = [];
-                }
-                await processDrawItems(items);
-                refreshAllModalViewportMasks();
-                runScrollClipping();
-                reapplyOpenModalsState();
-                ensureMapNavButtonsPositionAndZIndex();
-                app.stage.sortChildren();
-                await new Promise((resolve) => requestAnimationFrame(resolve));
             }
+            if (!Array.isArray(items)) {
+                console.warn('Draw items is not an array:', items);
+                items = [];
+            }
+            await processDrawItems(items);
+            refreshAllModalViewportMasks();
+            runScrollClipping();
+            reapplyOpenModalsState();
+            ensureMapNavButtonsPositionAndZIndex();
+            app.stage.sortChildren();
+            await new Promise((resolve) => requestAnimationFrame(resolve));
         }
 
         async function processDrawItems(items) {
@@ -530,13 +513,12 @@
             }
         }
 
-        function bindChannelEvents(channelName) {
+        function bindChannelEvents(channel) {
+            if (!channel) return;
             // Avoid duplicated listeners on reconnect: duplicates can break action ordering.
-            if (window.socket && typeof window.socket.off === 'function') {
-                window.socket.off('draw_interface');
-            }
+            channel.unbind('draw_interface');
 
-            window.socket.on('draw_interface', function (data) {
+            channel.bind('draw_interface', function (data) {
                 drawEventQueue = drawEventQueue
                     .then(() => processDrawInterfaceEvent(data))
                     .catch((err) => {
@@ -547,17 +529,22 @@
         }
 
         window.switchPlayerChannel = function (newPlayerId) {
-            if (window.currentChannel) {
-                window.socket.emit('unsubscribe', { channel: window.currentChannel });
+            if (window.currentChannel && window.pusher) {
+                window.currentChannel.unbind_all();
+                window.pusher.unsubscribe(window.currentChannel.name);
             }
             const channelName = 'player_' + newPlayerId + '_channel';
-            window.currentChannel = channelName;
-            window.socket.emit('subscribe', {
-                channel: channelName,
-                auth: {
-                    token: localStorage.getItem('auth_token') || null
-                }
+            if (!window.pusher) return;
+            window.currentChannel = window.pusher.subscribe(channelName);
+            window.currentChannel.bind('pusher:subscription_succeeded', function () {
+                status('Sottoscritto al canale: ' + channelName);
+                console.log('Subscribed to channel:', channelName);
             });
+            window.currentChannel.bind('pusher:subscription_error', function (data) {
+                status('Errore sottoscrizione: ' + (data?.error || 'unknown'));
+                console.error('Subscription error:', data);
+            });
+            bindChannelEvents(window.currentChannel);
         };
 
         const triggerInitialMap = () => {
@@ -804,21 +791,25 @@
 
         $(document).ready(function () {
             initPixi();
-            status('PixiJS Avviato - Connessione a Socket.io...');
+            status('PixiJS Avviato - Connessione a Reverb...');
 
-            window.socket = io(config.SOCKETIO_URL, {
-                transports: ['websocket', 'polling'],
-                reconnection: true,
-                reconnectionDelay: 1000,
-                reconnectionAttempts: Infinity
+            if (config.DEBUG_MODE) {
+                Pusher.logToConsole = true;
+            }
+
+            window.pusher = new Pusher(config.REVERB_APP_KEY, {
+                cluster: config.REVERB_CLUSTER,
+                wsHost: config.REVERB_HOST,
+                wsPort: config.REVERB_PORT,
+                wssPort: config.REVERB_PORT,
+                forceTLS: config.REVERB_SCHEME === 'https',
+                enabledTransports: ['ws', 'wss'],
+                disableStats: true
             });
 
-            window.socket.on('connect', function () {
-                status('Connesso a Socket.io');
-                console.log('Socket.io connected:', window.socket.id);
-
-                // Bind channel events
-                bindChannelEvents(window.currentChannel);
+            window.pusher.connection.bind('connected', function () {
+                status('Connesso a Reverb');
+                console.log('Reverb connected');
 
                 // Trigger initial map if no shapes
                 if (Object.keys(shapes).length === 0) {
@@ -826,24 +817,14 @@
                 }
             });
 
-            window.socket.on('subscription_succeeded', function (data) {
-                status('Sottoscritto al canale: ' + data.channel);
-                console.log('Subscribed to channel:', data.channel);
+            window.pusher.connection.bind('disconnected', function () {
+                status('Disconnesso da Reverb');
+                console.log('Reverb disconnected');
             });
 
-            window.socket.on('subscription_error', function (data) {
-                status('Errore sottoscrizione: ' + data.error);
-                console.error('Subscription error:', data);
-            });
-
-            window.socket.on('disconnect', function (reason) {
-                status('Disconnesso da Socket.io: ' + reason);
-                console.log('Socket.io disconnected:', reason);
-            });
-
-            window.socket.on('connect_error', function (error) {
-                status('Errore connessione Socket.io: ' + error.message);
-                console.error('Socket.io connection error:', error);
+            window.pusher.connection.bind('error', function (error) {
+                status('Errore connessione Reverb');
+                console.error('Reverb connection error:', error);
             });
 
             // Inizializza il canale per il playerId corrente
