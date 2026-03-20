@@ -624,6 +624,50 @@
             });
         }
 
+        async function fetchAndConnectRemoteSockets(playerId) {
+            try {
+                const response = await $.ajax({
+                    url: `${BACK_URL}/api/game/websocket_info`,
+                    type: 'POST',
+                    data: { player_id: playerId }
+                });
+
+                if (response.success && response.containers) {
+                    status('Trovati ' + response.containers.length + ' container remoti');
+                    
+                    // Chiude instanze precedenti
+                    for (const key in window.gameWebSockets) {
+                        try { window.gameWebSockets[key].close(); } catch(e) {}
+                    }
+                    window.gameWebSockets = {};
+
+                    response.containers.forEach(container => {
+                        if (container.ws_port) {
+                            const wsUrl = container.ws_url;
+                            console.log(`[Remote WS] Connessione a ${container.type} (${container.name}) su ${wsUrl}`);
+                            const ws = new WebSocket(wsUrl);
+                            
+                            ws.onopen = function () {
+                                console.log(`[Remote WS] Aperta connessione a ${container.type}`);
+                            };
+                            
+                            ws.onmessage = function (event) {
+                                console.log(`[Remote WS] Dati da ${container.type}:`, event.data);
+                            };
+                            
+                            ws.onerror = function (error) {
+                                console.error(`[Remote WS] Errore su ${container.type}:`, error);
+                            };
+                            
+                            window.gameWebSockets[container.name] = ws;
+                        }
+                    });
+                }
+            } catch (err) {
+                console.error("[Remote WS] Errore nel recupero info websocket:", err);
+            }
+        }
+
         window.switchPlayerChannel = function (newPlayerId) {
             if (window.currentChannel && window.pusher) {
                 window.currentChannel.unbind_all();
@@ -641,6 +685,9 @@
                 console.error('Subscription error:', data);
             });
             bindChannelEvents(window.currentChannel);
+            
+            // Connessione ai websocket dinamici remoti
+            fetchAndConnectRemoteSockets(newPlayerId);
         };
 
         const triggerInitialMap = () => {
