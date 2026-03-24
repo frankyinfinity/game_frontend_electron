@@ -55,12 +55,30 @@
             padding: 5px;
             border-radius: 5px;
         }
+
+        #object-tooltip {
+            position: fixed;
+            display: none;
+            max-width: 260px;
+            padding: 8px 10px;
+            background: rgba(17, 24, 39, 0.96);
+            color: #fff;
+            border: 1px solid rgba(255, 255, 255, 0.15);
+            border-radius: 8px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
+            font-size: 12px;
+            line-height: 1.35;
+            white-space: pre-line;
+            pointer-events: none;
+            z-index: 20000;
+        }
     </style>
 </head>
 
 <body>
     <div id="display_container"></div>
     <div id="status-msg">Inizializzazione...</div>
+    <div id="object-tooltip"></div>
 
     <script src="https://js.pusher.com/8.2.0/pusher.min.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/pixi.js/7.4.2/pixi.min.js"></script>
@@ -88,6 +106,20 @@
             console.log('Status:', msg);
             document.getElementById('status-msg').innerText = msg;
         };
+
+        const tooltipEl = document.getElementById('object-tooltip');
+        function showTooltip(text, x, y) {
+            if (!tooltipEl || !text) return;
+            tooltipEl.textContent = text;
+            tooltipEl.style.display = 'block';
+            tooltipEl.style.left = `${Math.min(x + 14, window.innerWidth - 280)}px`;
+            tooltipEl.style.top = `${Math.min(y + 14, window.innerHeight - 80)}px`;
+        }
+
+        function hideTooltip() {
+            if (!tooltipEl) return;
+            tooltipEl.style.display = 'none';
+        }
 
         const BACK_URL = config.BACKEND_URL;
         window.BACK_URL = BACK_URL;
@@ -132,37 +164,47 @@
             shape.x = x;
             shape.y = y;
 
-            const childUids = Array.isArray(obj.children) ? obj.children : [];
-            childUids.forEach((childUid) => {
-                const childObj = objects[childUid];
-                const childShape = shapes[childUid];
-                if (!childObj || !childShape) return;
+            function shiftDescendants(rootUid, deltaX, deltaY) {
+                const rootObj = objects[rootUid];
+                if (!rootObj || !Array.isArray(rootObj.children)) return;
 
-                if (typeof childObj.x === 'number') {
-                    childObj.x += dx;
-                    childShape.x += dx;
-                }
-                if (typeof childObj.y === 'number') {
-                    childObj.y += dy;
-                    childShape.y += dy;
-                }
-                if (Array.isArray(childObj.points) && typeof childShape.clear === 'function') {
-                    const color = childObj.color || 0xFFFFFF;
-                    const thickness = childObj.thickness || 1;
-                    childObj.points = childObj.points.map((point) => ({
-                        x: point.x + dx,
-                        y: point.y + dy
-                    }));
-                    childShape.clear();
-                    childShape.lineStyle(thickness, color);
-                    if (childObj.points.length > 0) {
-                        childShape.moveTo(childObj.points[0].x, childObj.points[0].y);
-                        for (let i = 1; i < childObj.points.length; i++) {
-                            childShape.lineTo(childObj.points[i].x, childObj.points[i].y);
+                rootObj.children.forEach((childUid) => {
+                    const childObj = objects[childUid];
+                    const childShape = shapes[childUid];
+                    if (!childObj || !childShape) return;
+
+                    if (typeof childObj.x === 'number') {
+                        childObj.x += deltaX;
+                        childShape.x += deltaX;
+                    }
+                    if (typeof childObj.y === 'number') {
+                        childObj.y += deltaY;
+                        childShape.y += deltaY;
+                    }
+                    if (Array.isArray(childObj.points) && typeof childShape.clear === 'function') {
+                        const color = childObj.color || 0xFFFFFF;
+                        const thickness = childObj.thickness || 1;
+                        childObj.points = childObj.points.map((point) => ({
+                            x: point.x + deltaX,
+                            y: point.y + deltaY
+                        }));
+                        childShape.clear();
+                        childShape.lineStyle(thickness, color);
+                        if (childObj.points.length > 0) {
+                            childShape.moveTo(childObj.points[0].x, childObj.points[0].y);
+                            for (let i = 1; i < childObj.points.length; i++) {
+                                childShape.lineTo(childObj.points[i].x, childObj.points[i].y);
+                            }
                         }
                     }
-                }
-            });
+
+                    if (Array.isArray(childObj.children) && childObj.children.length > 0) {
+                        shiftDescendants(childUid, deltaX, deltaY);
+                    }
+                });
+            }
+
+            shiftDescendants(uid, dx, dy);
         }
 
         function ensureMapNavButtonsPositionAndZIndex() {
@@ -537,6 +579,7 @@
                     if (obj.type === 'square') drawSquare(obj);
                     else if (obj.type === 'rectangle') drawRectangle(obj);
                     else if (obj.type === 'multi_line') drawMultiLine(obj);
+                    else if (obj.type === 'line') drawLine(obj);
                     else if (obj.type === 'circle') drawCircle(obj);
                     else if (obj.type === 'text') drawText(obj);
                     else if (obj.type === 'image') await drawImage(obj);
@@ -583,9 +626,17 @@
                                     const offsetX = offset.x;
                                     const offsetY = offset.y;
                                     value = value.map((point) => ({ x: point.x + offsetX, y: point.y + offsetY }));
+                                    let lineColor = 0xFFFFFF;
+                                    const rawColor = object?.color;
+                                    if (typeof rawColor === 'number') lineColor = rawColor;
+                                    else if (typeof rawColor === 'string') {
+                                        const c = rawColor.trim();
+                                        if (c.startsWith('#')) lineColor = parseInt(c.slice(1), 16) || 0xFFFFFF;
+                                        else if (/^0x[0-9a-f]+$/i.test(c)) lineColor = parseInt(c, 16) || 0xFFFFFF;
+                                        else if (/^[0-9a-f]{6}$/i.test(c)) lineColor = parseInt(c, 16) || 0xFFFFFF;
+                                    }
                                     shape.clear();
-                                    shape.lineStyle(object?.thickness || 1, 0xFFFFFF);
-                                    shape.tint = object?.color;
+                                    shape.lineStyle(object?.thickness || 1, lineColor);
                                     if (value.length > 0) {
                                         shape.moveTo(value[0].x, value[0].y);
                                         for (let i = 1; i < value.length; i++) {
@@ -752,27 +803,44 @@
             }
             addInteractive() {
                 const object = objects[this.object['uid']];
-                if (!object['attributes'] || !object['attributes']['interactives'] || object['attributes']['interactives']['count'] === 0) return;
+                const hasInteractiveScripts = object['attributes'] && object['attributes']['interactives'] && object['attributes']['interactives']['count'] > 0;
+                const tooltipText = object['attributes'] ? object['attributes']['tooltip_text'] : null;
+                if (!hasInteractiveScripts && !tooltipText) return;
 
                 this.shape.interactive = true;
-                this.shape.cursor = 'pointer';
-                const items = object['attributes']['interactives']['items'];
+                this.shape.eventMode = 'static';
+                this.shape.cursor = hasInteractiveScripts ? 'pointer' : 'help';
 
                 const targetShape = this.shape;
-                Object.entries(items).forEach(([event, strFunction]) => {
-                    const processedScript = strFunction
-                        .replace(/<script>/g, '')
-                        .replace(/<\/script>/g, '')
-                        .replace(/window\.location\.hostname/g, `'${hostname}'`);
+                if (hasInteractiveScripts) {
+                    const items = object['attributes']['interactives']['items'];
+                    Object.entries(items).forEach(([event, strFunction]) => {
+                        const processedScript = strFunction
+                            .replace(/<script>/g, '')
+                            .replace(/<\/script>/g, '')
+                            .replace(/window\.location\.hostname/g, `'${hostname}'`);
 
-                    targetShape.on(event, (evt) => {
-                        try {
-                            (function (object, shape, shapes, objects, AppData, event) {
-                                eval(processedScript);
-                            })(object, targetShape, shapes, objects, AppData, evt);
-                        } catch (e) { console.error('Error executing interaction script:', e); }
+                        targetShape.on(event, (evt) => {
+                            try {
+                                (function (object, shape, shapes, objects, AppData, event) {
+                                    eval(processedScript);
+                                })(object, targetShape, shapes, objects, AppData, evt);
+                            } catch (e) { console.error('Error executing interaction script:', e); }
+                        });
                     });
-                });
+                }
+
+                if (tooltipText) {
+                    targetShape.on('pointerover', (evt) => {
+                        showTooltip(tooltipText, evt.global.x, evt.global.y);
+                    });
+                    targetShape.on('pointermove', (evt) => {
+                        showTooltip(tooltipText, evt.global.x, evt.global.y);
+                    });
+                    targetShape.on('pointerout', () => {
+                        hideTooltip();
+                    });
+                }
             }
         }
 
@@ -831,6 +899,26 @@
                     lineColor = parseInt(lineColor.slice(1), 16);
                 }
                 this.shape.lineStyle(lineThickness, lineColor || 0xFFFFFF);
+                if (points && points.length > 0) {
+                    this.shape.moveTo(points[0].x, points[0].y);
+                    for (let i = 1; i < points.length; i++) {
+                        this.shape.lineTo(points[i].x, points[i].y);
+                    }
+                }
+            }
+        }
+
+        class Line extends BasicDraw {
+            constructor(object) { super(object); this.shape = new PIXI.Graphics(); }
+            build() {
+                const object = this.object;
+                let lineColor = object['color'];
+                const lineThickness = object['thickness'] || 1;
+                const points = object['points'];
+                if (typeof lineColor === 'string' && lineColor.startsWith('#')) {
+                    lineColor = parseInt(lineColor.slice(1), 16);
+                }
+                this.shape.lineStyle(lineThickness, lineColor || 0xD1D5DB);
                 if (points && points.length > 0) {
                     this.shape.moveTo(points[0].x, points[0].y);
                     for (let i = 1; i < points.length; i++) {
@@ -953,6 +1041,7 @@
         function drawSquare(object) { let d = new Square(object); d.build(); d.render(app); }
         function drawRectangle(object) { let d = new Rectangle(object); d.build(); d.render(app); }
         function drawMultiLine(object) { let d = new MultiLine(object); d.build(); d.render(app); }
+        function drawLine(object) { let d = new Line(object); d.build(); d.render(app); }
         function drawCircle(object) { let d = new Circle(object); d.build(); d.render(app); }
         function drawText(object) { let d = new Text(object); d.build(); d.render(app); }
         async function drawImage(object) { let d = new ImageSprite(object); await d.build(); d.render(app); }
