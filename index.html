@@ -146,6 +146,22 @@
                     childObj.y += dy;
                     childShape.y += dy;
                 }
+                if (Array.isArray(childObj.points) && typeof childShape.clear === 'function') {
+                    const color = childObj.color || 0xFFFFFF;
+                    const thickness = childObj.thickness || 1;
+                    childObj.points = childObj.points.map((point) => ({
+                        x: point.x + dx,
+                        y: point.y + dy
+                    }));
+                    childShape.clear();
+                    childShape.lineStyle(thickness, color);
+                    if (childObj.points.length > 0) {
+                        childShape.moveTo(childObj.points[0].x, childObj.points[0].y);
+                        for (let i = 1; i < childObj.points.length; i++) {
+                            childShape.lineTo(childObj.points[i].x, childObj.points[i].y);
+                        }
+                    }
+                }
             });
         }
 
@@ -777,9 +793,14 @@
             build() {
                 const object = this.object;
                 let color = object['color'] || 0xFFFFFF;
+                let borderColor = object['borderColor'];
+                let thickness = object['thickness'] || 0;
                 // Convert color number to hex if needed
                 if (typeof color === 'string' && color.startsWith('#')) {
                     color = parseInt(color.slice(1), 16);
+                }
+                if (typeof borderColor === 'string' && borderColor.startsWith('#')) {
+                    borderColor = parseInt(borderColor.slice(1), 16);
                 }
                 const uid = (object['uid'] || '').toString();
                 const isProgressBar = uid.includes('_progress_bar_') || uid.includes('gene_progress_');
@@ -788,6 +809,9 @@
                     : (object['borderRadius'] !== undefined
                         ? object['borderRadius']
                         : (object['radius'] !== undefined ? object['radius'] : 8));
+                if (borderColor !== undefined && borderColor !== null && thickness > 0) {
+                    this.shape.lineStyle(thickness, borderColor);
+                }
                 this.shape.beginFill(color);
                 this.shape.drawRoundedRect(0, 0, object['width'], object['height'], radius);
                 this.shape.endFill();
@@ -800,11 +824,13 @@
             constructor(object) { super(object); this.shape = new PIXI.Graphics(); }
             build() {
                 const object = this.object;
-                const lineColor = object['color'];
+                let lineColor = object['color'];
                 const lineThickness = object['thickness'] || 1;
                 const points = object['points'];
-                this.shape.lineStyle(lineThickness, 0xFFFFFF);
-                this.shape.tint = lineColor;
+                if (typeof lineColor === 'string' && lineColor.startsWith('#')) {
+                    lineColor = parseInt(lineColor.slice(1), 16);
+                }
+                this.shape.lineStyle(lineThickness, lineColor || 0xFFFFFF);
                 if (points && points.length > 0) {
                     this.shape.moveTo(points[0].x, points[0].y);
                     for (let i = 1; i < points.length; i++) {
