@@ -643,7 +643,7 @@
 
                     response.containers.forEach(container => {
                         if (container.ws_port) {
-                            const wsUrl = container.ws_url;
+                            const wsUrl = container.ws_gateway_url || container.ws_url;
                             console.log(`[Remote WS] Connessione a ${container.type} (${container.name}) su ${wsUrl}`);
                             const ws = new WebSocket(wsUrl);
                             
