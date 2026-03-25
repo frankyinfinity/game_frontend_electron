@@ -689,6 +689,13 @@
                         console.error(err);
                     });
             });
+
+            // Listen for update_draw events from container element
+            channel.bind('update_draw', function (data) {
+                console.log('Update draw received:', data);
+                console.log('border_uid:', data.border_uid);
+                console.log('file_data:', data.file_data);
+            });
         }
 
         async function fetchAndConnectRemoteSockets(playerId) {
@@ -701,10 +708,10 @@
 
                 if (response.success && response.containers) {
                     status('Trovati ' + response.containers.length + ' container remoti');
-                    
+
                     // Chiude instanze precedenti
                     for (const key in window.gameWebSockets) {
-                        try { window.gameWebSockets[key].close(); } catch(e) {}
+                        try { window.gameWebSockets[key].close(); } catch (e) { }
                     }
                     window.gameWebSockets = {};
 
@@ -713,19 +720,19 @@
                             const wsUrl = container.ws_gateway_url || container.ws_url;
                             console.log(`[Remote WS] Connessione a ${container.type} (${container.name}) su ${wsUrl}`);
                             const ws = new WebSocket(wsUrl);
-                            
+
                             ws.onopen = function () {
                                 console.log(`[Remote WS] Aperta connessione a ${container.type}`);
                             };
-                            
+
                             ws.onmessage = function (event) {
                                 console.log(`[Remote WS] Dati da ${container.type}:`, event.data);
                             };
-                            
+
                             ws.onerror = function (error) {
                                 console.error(`[Remote WS] Errore su ${container.type}:`, error);
                             };
-                            
+
                             window.gameWebSockets[container.name] = ws;
                         }
                     });
@@ -751,7 +758,7 @@
                 console.error('Subscription error:', data);
             });
             bindChannelEvents(window.currentChannel);
-            
+
             // Connessione ai websocket dinamici remoti
             fetchAndConnectRemoteSockets(newPlayerId);
         };
