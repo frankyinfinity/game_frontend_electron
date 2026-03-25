@@ -29,7 +29,7 @@ function createWindow() {
       e.preventDefault();
       const axios = require('axios');
       try {
-        await axios.post(`${config.BACKEND_URL}/api/game/close`, {
+        await axios.post(`${config.BACKEND_URL}/api/auth/logout`, {
           player_id: global.playerId
         });
       } catch (error) {
