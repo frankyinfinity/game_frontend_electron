@@ -333,6 +333,12 @@
                 });
 
                 childUids.forEach((uid) => {
+                    const childObject = objects[uid];
+                    if (childObject && childObject.type === 'text') {
+                        void redrawShapeFromObject(uid);
+                    } else if (!shapes[uid] && childObject) {
+                        void redrawShapeFromObject(uid);
+                    }
                     let shouldShow = initialRenderables[uid] === undefined ? true : !!initialRenderables[uid];
                     if (!hasVisibleBaseContent) {
                         shouldShow = !isPanelUid(uid);
@@ -345,6 +351,10 @@
                         objects[uid].attributes.renderable = shouldShow;
                     }
                 });
+            }
+
+            if (app && app.stage) {
+                app.stage.sortChildren();
             }
         }
 
@@ -409,32 +419,51 @@
         let shapes = {};
         let objects = {};
 
-        function toPixiColorValue(color, fallback = 0xFFFFFF) {
+        function normalizeColorValue(color) {
             if (color === null || color === undefined || color === '') {
-                return fallback;
+                return null;
             }
             if (typeof color === 'number' && Number.isFinite(color)) {
-                return color;
+                const numeric = Math.max(0, Math.min(0xFFFFFF, Math.trunc(color)));
+                const hex = numeric.toString(16).toUpperCase().padStart(6, '0');
+                return {
+                    numeric,
+                    formatted: `0x${hex}`,
+                };
             }
             if (typeof color !== 'string') {
-                return fallback;
+                return null;
             }
 
-            const normalized = color.trim();
+            let normalized = color.trim();
             if (!normalized) {
-                return fallback;
-            }
-            if (normalized.startsWith('#')) {
-                return parseInt(normalized.slice(1), 16) || fallback;
-            }
-            if (/^0x[0-9a-f]+$/i.test(normalized)) {
-                return parseInt(normalized, 16) || fallback;
-            }
-            if (/^[0-9a-f]{6}$/i.test(normalized)) {
-                return parseInt(normalized, 16) || fallback;
+                return null;
             }
 
-            return fallback;
+            normalized = normalized.replace(/^#/, '').replace(/^0x/i, '');
+            if (/^[0-9A-Fa-f]{3}$/.test(normalized)) {
+                normalized = normalized.split('').map((char) => char + char).join('');
+            }
+
+            if (!/^[0-9A-Fa-f]{6}$/.test(normalized)) {
+                return null;
+            }
+
+            const hex = normalized.toUpperCase();
+            return {
+                numeric: parseInt(hex, 16),
+                formatted: `0x${hex}`,
+            };
+        }
+
+        function toPixiColorValue(color, fallback = 0xFFFFFF) {
+            const normalized = normalizeColorValue(color);
+            return normalized ? normalized.numeric : fallback;
+        }
+
+        function toCssColorValue(color, fallback = '#FFFFFF') {
+            const normalized = normalizeColorValue(color);
+            return normalized ? `#${normalized.formatted.slice(2)}` : fallback;
         }
 
         function applyDisplayAttributes(shape, object) {
@@ -449,6 +478,36 @@
             if (attributes.z_index !== undefined) {
                 shape.zIndex = attributes.z_index;
             }
+        }
+
+        function redrawRectangleGraphics(shape, object) {
+            if (!shape || !object || typeof shape.clear !== 'function') {
+                return false;
+            }
+
+            const color = toPixiColorValue(object['color'], 0xFFFFFF);
+            const normalizedBorderColor = normalizeColorValue(object['borderColor']);
+            const borderColor = normalizedBorderColor ? normalizedBorderColor.numeric : null;
+            const thickness = object['thickness'] || 0;
+            const uid = (object['uid'] || '').toString();
+            const isProgressBar = uid.includes('_progress_bar_') || uid.includes('gene_progress_');
+            const radius = isProgressBar
+                ? 0
+                : (object['borderRadius'] !== undefined
+                    ? object['borderRadius']
+                    : (object['radius'] !== undefined ? object['radius'] : 8));
+
+            shape.clear();
+            if (borderColor !== undefined && borderColor !== null && thickness > 0) {
+                shape.lineStyle(thickness, borderColor);
+            }
+            shape.beginFill(color);
+            shape.drawRoundedRect(0, 0, object['width'], object['height'], radius);
+            shape.endFill();
+            shape.x = object['x'];
+            shape.y = object['y'];
+            applyDisplayAttributes(shape, object);
+            return true;
         }
 
         async function redrawShapeFromObject(uid) {
@@ -471,6 +530,11 @@
                 return true;
             }
             if (drawableObject.type === 'rectangle') {
+                const existingShape = shapes[uid];
+                if (existingShape && redrawRectangleGraphics(existingShape, drawableObject)) {
+                    objects[uid] = drawableObject;
+                    return true;
+                }
                 drawRectangle(drawableObject);
                 return true;
             }
@@ -709,6 +773,7 @@
                         const shouldRedrawObject = object && Object.keys(item.attributes || {}).some((key) => {
                             return [
                                 'color',
+                                'borderColor',
                                 'thickness',
                                 'width',
                                 'height',
@@ -740,13 +805,12 @@
                             : false;
                         for (const key of Object.keys(item.attributes)) {
                             if (key === 'color') {
-                                shape.tint = item.attributes[key];
+                                shape.tint = toPixiColorValue(item.attributes[key]);
                                 if (object) object.color = item.attributes[key];
                             } else if (key === 'borderColor') {
                                 if (object) {
                                     object.borderColor = item.attributes[key];
                                     console.log('object.borderColor', object.borderColor);
-                                    shape.lineStyle(2, object.borderColor);
                                 }
                             } else if (key === 'renderable') {
                                 shape.renderable = !!item.attributes[key];
@@ -852,14 +916,12 @@
                             return;
                         }
 
-                        await processDrawItems([
-                            {
-                                type: 'update',
-                                uid: targetUid,
-                                attributes: attributes,
-                                object: object,
-                            }
-                        ]);
+                        await processDrawItems([{
+                            type: 'update',
+                            uid: targetUid,
+                            attributes: attributes,
+                            object: object,
+                        }]);
 
                         if (app && app.stage) app.stage.sortChildren();
                         runScrollClipping();
@@ -1032,7 +1094,7 @@
                 this.shape.height = object['size'];
                 this.shape.x = object['x'];
                 this.shape.y = object['y'];
-                this.shape.tint = object['color'];
+                this.shape.tint = toPixiColorValue(object['color']);
             }
         }
 
@@ -1040,16 +1102,10 @@
             constructor(object) { super(object); this.shape = new PIXI.Graphics(); }
             build() {
                 const object = this.object;
-                let color = object['color'] || 0xFFFFFF;
-                let borderColor = object['borderColor'];
+                const color = toPixiColorValue(object['color'], 0xFFFFFF);
+                const normalizedBorderColor = normalizeColorValue(object['borderColor']);
+                const borderColor = normalizedBorderColor ? normalizedBorderColor.numeric : null;
                 let thickness = object['thickness'] || 0;
-                // Convert color number to hex if needed
-                if (typeof color === 'string' && color.startsWith('#')) {
-                    color = parseInt(color.slice(1), 16);
-                }
-                if (typeof borderColor === 'string' && borderColor.startsWith('#')) {
-                    borderColor = parseInt(borderColor.slice(1), 16);
-                }
                 const uid = (object['uid'] || '').toString();
                 const isProgressBar = uid.includes('_progress_bar_') || uid.includes('gene_progress_');
                 const radius = isProgressBar
@@ -1072,13 +1128,10 @@
             constructor(object) { super(object); this.shape = new PIXI.Graphics(); }
             build() {
                 const object = this.object;
-                let lineColor = object['color'];
+                const lineColor = toPixiColorValue(object['color'], 0xFFFFFF);
                 const lineThickness = object['thickness'] || 1;
                 const points = object['points'];
-                if (typeof lineColor === 'string' && lineColor.startsWith('#')) {
-                    lineColor = parseInt(lineColor.slice(1), 16);
-                }
-                this.shape.lineStyle(lineThickness, lineColor || 0xFFFFFF);
+                this.shape.lineStyle(lineThickness, lineColor);
                 if (points && points.length > 0) {
                     this.shape.moveTo(points[0].x, points[0].y);
                     for (let i = 1; i < points.length; i++) {
@@ -1092,13 +1145,10 @@
             constructor(object) { super(object); this.shape = new PIXI.Graphics(); }
             build() {
                 const object = this.object;
-                let lineColor = object['color'];
+                const lineColor = toPixiColorValue(object['color'], 0xD1D5DB);
                 const lineThickness = object['thickness'] || 1;
                 const points = object['points'];
-                if (typeof lineColor === 'string' && lineColor.startsWith('#')) {
-                    lineColor = parseInt(lineColor.slice(1), 16);
-                }
-                this.shape.lineStyle(lineThickness, lineColor || 0xD1D5DB);
+                this.shape.lineStyle(lineThickness, lineColor);
                 if (points && points.length > 0) {
                     this.shape.moveTo(points[0].x, points[0].y);
                     for (let i = 1; i < points.length; i++) {
@@ -1115,7 +1165,7 @@
                 this.shape.beginFill(0xFFFFFF);
                 this.shape.drawCircle(0, 0, object['radius']);
                 this.shape.endFill();
-                this.shape.tint = object['color'];
+                this.shape.tint = toPixiColorValue(object['color']);
                 this.shape.x = object['x'];
                 this.shape.y = object['y'];
             }
@@ -1128,16 +1178,7 @@
                 this.shape.x = object['x'];
                 this.shape.y = object['y'];
                 if (object['color'] !== null && object['color'] !== undefined) {
-                    let colorValue = object['color'];
-                    // Handle different color formats
-                    if (typeof colorValue === 'string') {
-                        // Already a string, use as-is or add # if missing
-                        this.shape.style.fill = colorValue.startsWith('#') ? colorValue : '#' + colorValue;
-                    } else {
-                        // It's a number, convert to hex
-                        const hexValue = colorValue.toString(16).padStart(6, '0');
-                        this.shape.style.fill = '#' + hexValue;
-                    }
+                    this.shape.style.fill = toCssColorValue(object['color']);
                 }
                 this.shape.style.fontFamily = object['fontFamily'];
                 this.shape.style.fontSize = object['fontSize'];
@@ -1195,7 +1236,7 @@
                     this.shape.height = object['height'];
                 }
                 if (object['color'] !== undefined && object['color'] !== null) {
-                    this.shape.tint = object['color'];
+                    this.shape.tint = toPixiColorValue(object['color']);
                 }
             }
         }
