@@ -172,22 +172,29 @@
                     const childObj = objects[childUid];
                     const childShape = shapes[childUid];
                     if (!childObj || !childShape) return;
+                    const isPointBasedGraphic = Array.isArray(childObj.points) && typeof childShape.clear === 'function';
 
-                    if (typeof childObj.x === 'number') {
+                    if (!isPointBasedGraphic && typeof childObj.x === 'number') {
                         childObj.x += deltaX;
                         childShape.x += deltaX;
                     }
-                    if (typeof childObj.y === 'number') {
+                    if (!isPointBasedGraphic && typeof childObj.y === 'number') {
                         childObj.y += deltaY;
                         childShape.y += deltaY;
                     }
-                    if (Array.isArray(childObj.points) && typeof childShape.clear === 'function') {
+                    if (isPointBasedGraphic) {
                         const color = childObj.color || 0xFFFFFF;
                         const thickness = childObj.thickness || 1;
                         childObj.points = childObj.points.map((point) => ({
                             x: point.x + deltaX,
                             y: point.y + deltaY
                         }));
+                        if (childObj.points.length > 0) {
+                            childObj.x = childObj.points[0].x;
+                            childObj.y = childObj.points[0].y;
+                        }
+                        childShape.x = 0;
+                        childShape.y = 0;
                         childShape.clear();
                         childShape.lineStyle(thickness, color);
                         if (childObj.points.length > 0) {
@@ -572,21 +579,61 @@
             }
 
             const object = objects[uid];
+            const existingShape = shapes[uid];
             if (!object) {
                 console.warn('Unable to update missing object:', uid, incomingData);
                 return false;
             }
 
-            Object.keys(incomingData).forEach((key) => {
-                if (key === 'attributes' && typeof incomingData.attributes === 'object' && incomingData.attributes !== null) {
+            const objectGroup = (typeof window.getObjectScrollGroup === 'function')
+                ? window.getObjectScrollGroup(object)
+                : null;
+            const excludedUids = typeof window.getScrollExcludedUids === 'function'
+                ? window.getScrollExcludedUids(AppData)
+                : [];
+            const isMapObject = typeof window.isInScrollGroup === 'function'
+                ? window.isInScrollGroup(uid, object, objectGroup, excludedUids)
+                : false;
+            const normalizedIncomingData = { ...incomingData };
+            if (isMapObject) {
+                const offset = (typeof window.getScrollGroupOffset === 'function')
+                    ? window.getScrollGroupOffset(AppData, objectGroup)
+                    : { x: 0, y: 0 };
+                if (typeof normalizedIncomingData.x === 'number') {
+                    normalizedIncomingData.x = normalizedIncomingData.x + offset.x;
+                }
+                if (typeof normalizedIncomingData.y === 'number') {
+                    normalizedIncomingData.y = normalizedIncomingData.y + offset.y;
+                }
+                if (Array.isArray(normalizedIncomingData.points)) {
+                    normalizedIncomingData.points = normalizedIncomingData.points.map((point) => ({
+                        x: point.x + offset.x,
+                        y: point.y + offset.y,
+                    }));
+                }
+            }
+
+            Object.keys(normalizedIncomingData).forEach((key) => {
+                if (key === 'attributes' && typeof normalizedIncomingData.attributes === 'object' && normalizedIncomingData.attributes !== null) {
                     object.attributes = {
                         ...(object.attributes || {}),
-                        ...incomingData.attributes,
+                        ...normalizedIncomingData.attributes,
                     };
                     return;
                 }
-                object[key] = incomingData[key];
+                object[key] = normalizedIncomingData[key];
             });
+
+            const incomingRenderableDefined = !!(
+                normalizedIncomingData.attributes
+                && typeof normalizedIncomingData.attributes === 'object'
+                && normalizedIncomingData.attributes !== null
+                && Object.prototype.hasOwnProperty.call(normalizedIncomingData.attributes, 'renderable')
+            );
+            if (!incomingRenderableDefined && existingShape && typeof existingShape.renderable === 'boolean') {
+                object.attributes = object.attributes || {};
+                object.attributes.renderable = existingShape.renderable;
+            }
 
             return redrawShapeFromObject(uid);
         }
