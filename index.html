@@ -409,6 +409,124 @@
         let shapes = {};
         let objects = {};
 
+        function toPixiColorValue(color, fallback = 0xFFFFFF) {
+            if (color === null || color === undefined || color === '') {
+                return fallback;
+            }
+            if (typeof color === 'number' && Number.isFinite(color)) {
+                return color;
+            }
+            if (typeof color !== 'string') {
+                return fallback;
+            }
+
+            const normalized = color.trim();
+            if (!normalized) {
+                return fallback;
+            }
+            if (normalized.startsWith('#')) {
+                return parseInt(normalized.slice(1), 16) || fallback;
+            }
+            if (/^0x[0-9a-f]+$/i.test(normalized)) {
+                return parseInt(normalized, 16) || fallback;
+            }
+            if (/^[0-9a-f]{6}$/i.test(normalized)) {
+                return parseInt(normalized, 16) || fallback;
+            }
+
+            return fallback;
+        }
+
+        function applyDisplayAttributes(shape, object) {
+            if (!shape || !object) return;
+
+            const attributes = object.attributes || {};
+            shape.renderable = attributes.renderable !== undefined ? !!attributes.renderable : true;
+
+            if (attributes.alpha !== undefined) {
+                shape.alpha = attributes.alpha;
+            }
+            if (attributes.z_index !== undefined) {
+                shape.zIndex = attributes.z_index;
+            }
+        }
+
+        async function redrawShapeFromObject(uid) {
+            const object = objects[uid];
+            if (!object) {
+                return false;
+            }
+
+            if (!app) {
+                return false;
+            }
+
+            const drawableObject = { ...object };
+            if (drawableObject.id === undefined) {
+                drawableObject.id = drawableObject.uid;
+            }
+
+            if (drawableObject.type === 'square') {
+                drawSquare(drawableObject);
+                return true;
+            }
+            if (drawableObject.type === 'rectangle') {
+                drawRectangle(drawableObject);
+                return true;
+            }
+            if (drawableObject.type === 'multi_line') {
+                drawMultiLine(drawableObject);
+                return true;
+            }
+            if (drawableObject.type === 'line') {
+                drawLine(drawableObject);
+                return true;
+            }
+            if (drawableObject.type === 'circle') {
+                drawCircle(drawableObject);
+                return true;
+            }
+            if (drawableObject.type === 'text') {
+                drawText(drawableObject);
+                return true;
+            }
+            if (drawableObject.type === 'image') {
+                await drawImage(drawableObject);
+                return true;
+            }
+
+            const shape = shapes[uid];
+            if (shape) {
+                applyDisplayAttributes(shape, object);
+            }
+            return !!shape;
+        }
+
+        async function applyIncomingObjectUpdate(uid, incomingData) {
+            if (!uid || !incomingData || typeof incomingData !== 'object' || Array.isArray(incomingData)) {
+                return false;
+            }
+
+            const object = objects[uid];
+            if (!object) {
+                console.warn('Unable to update missing object:', uid, incomingData);
+                return false;
+            }
+
+            Object.keys(incomingData).forEach((key) => {
+                if (key === 'attributes' && typeof incomingData.attributes === 'object' && incomingData.attributes !== null) {
+                    object.attributes = {
+                        ...(object.attributes || {}),
+                        ...incomingData.attributes,
+                    };
+                    return;
+                }
+                object[key] = incomingData[key];
+            });
+
+            return redrawShapeFromObject(uid);
+        }
+
         function runBackendCode(code) {
             if (typeof code !== 'string' || code.trim() === '') return;
             try {
@@ -588,6 +706,29 @@
                     let shape = shapes[item.uid];
                     let object = objects[item.uid];
                     if (shape) {
+                        const shouldRedrawObject = object && Object.keys(item.attributes || {}).some((key) => {
+                            return [
+                                'color',
+                                'thickness',
+                                'width',
+                                'height',
+                                'borderRadius',
+                                'radius',
+                                'points',
+                                'text',
+                                'fontSize',
+                                'fontFamily',
+                                'centerAnchor',
+                                'size',
+                                'src',
+                            ].includes(key);
+                        });
+
+                        if (shouldRedrawObject) {
+                            await applyIncomingObjectUpdate(item.uid, item.attributes || {});
+                            continue;
+                        }
+
                         const objectGroup = (typeof window.getObjectScrollGroup === 'function' && object)
                             ? window.getObjectScrollGroup(object)
                             : null;
@@ -597,10 +738,16 @@
                         const isMapObject = typeof window.isInScrollGroup === 'function'
                             ? window.isInScrollGroup(item.uid, object, objectGroup, excludedUids)
                             : false;
-                        Object.keys(item.attributes).forEach(key => {
+                        for (const key of Object.keys(item.attributes)) {
                             if (key === 'color') {
                                 shape.tint = item.attributes[key];
                                 if (object) object.color = item.attributes[key];
+                            } else if (key === 'borderColor') {
+                                if (object) {
+                                    object.borderColor = item.attributes[key];
+                                    console.log('object.borderColor', object.borderColor);
+                                    shape.lineStyle(2, object.borderColor);
+                                }
                             } else if (key === 'renderable') {
                                 shape.renderable = !!item.attributes[key];
                                 if (object) {
@@ -648,7 +795,7 @@
                                 shape[key] = value;
                                 if (object) object[key] = value;
                             }
-                        });
+                        }
                     }
                 } else if (itemType === 'clear') {
                     if (modalViewportMasks[item.uid]) {
@@ -680,6 +827,7 @@
             if (!channel) return;
             // Avoid duplicated listeners on reconnect: duplicates can break action ordering.
             channel.unbind('draw_interface');
+            channel.unbind('update_draw');
 
             channel.bind('draw_interface', function (data) {
                 drawEventQueue = drawEventQueue
@@ -692,9 +840,34 @@
 
             // Listen for update_draw events from container element
             channel.bind('update_draw', function (data) {
-                console.log('Update draw received:', data);
-                console.log('border_uid:', data.border_uid);
-                console.log('file_data:', data.file_data);
+                drawEventQueue = drawEventQueue
+                    .then(async () => {
+                        console.log('Update draw received:', data);
+                        const targetUid = data && data.border_uid ? data.border_uid : null;
+                        const attributes = data && data.attributes ? data.attributes : null;
+                        const object = data && data.object ? data.object : null;
+
+                        if (!targetUid || !attributes) {
+                            console.warn('update_draw missing border_uid or attributes', data);
+                            return;
+                        }
+
+                        await processDrawItems([
+                            {
+                                type: 'update',
+                                uid: targetUid,
+                                attributes: attributes,
+                                object: object,
+                            }
+                        ]);
+
+                        if (app && app.stage) app.stage.sortChildren();
+                        runScrollClipping();
+                        refreshAllModalViewportMasks();
+                    })
+                    .catch((err) => {
+                        console.error('update_draw handling error:', err);
+                    });
             });
         }
 
