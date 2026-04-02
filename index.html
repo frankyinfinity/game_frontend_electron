@@ -1016,6 +1016,9 @@
                             };
 
                             window.gameWebSockets[container.name] = ws;
+                            if (container.type === 'Map') {
+                                window.__mapWsGatewayUrl = wsUrl;
+                            }
                         }
                     });
                 }
