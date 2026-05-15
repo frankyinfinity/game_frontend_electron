@@ -650,83 +650,24 @@
         window.pusher = null;
         window.currentChannel = null;
         let drawEventQueue = Promise.resolve();
-        let drawWs = null;
-        let drawWsReady = false;
-        let drawWsReconnectTimer = null;
-        const drawWsPending = new Map();
-        const drawWsQueue = [];
 
-        function initDrawItemsSocket() {
-            if (!config.DRAW_WS_URL) return;
-            if (drawWs && (drawWs.readyState === WebSocket.OPEN || drawWs.readyState === WebSocket.CONNECTING)) {
-                return;
-            }
-            drawWs = new WebSocket(config.DRAW_WS_URL);
-
-            drawWs.onopen = function () {
-                drawWsReady = true;
-                while (drawWsQueue.length > 0) {
-                    const payload = drawWsQueue.shift();
-                    drawWs.send(JSON.stringify(payload));
-                }
-            };
-
-            drawWs.onmessage = function (event) {
-                let response = null;
-                try {
-                    response = JSON.parse(event.data);
-                } catch (error) {
-                    console.error('Invalid draw WS response:', error);
-                    return;
-                }
-
-                const requestId = response.request_id;
-                if (!requestId || !drawWsPending.has(requestId)) {
-                    return;
-                }
-
-                const pending = drawWsPending.get(requestId);
-                drawWsPending.delete(requestId);
-                pending.resolve(response);
-            };
-
-            drawWs.onclose = function () {
-                drawWsReady = false;
-                if (drawWsReconnectTimer) {
-                    clearTimeout(drawWsReconnectTimer);
-                }
-                drawWsReconnectTimer = setTimeout(initDrawItemsSocket, 1000);
-            };
-
-            drawWs.onerror = function (error) {
-                console.error('Draw WS error:', error);
-            };
-        }
-
-        function fetchDrawItemsWs(requestId, playerIdFromEvent) {
+        function fetchDrawItems(requestId, playerIdFromEvent) {
             return new Promise((resolve, reject) => {
-                const payload = {
-                    action: 'get_draw_item',
-                    request_id: requestId,
-                    player_id: playerIdFromEvent,
-                    session_id: sessionId
-                };
-
-                drawWsPending.set(requestId, { resolve, reject });
-
-                if (drawWsReady && drawWs) {
-                    drawWs.send(JSON.stringify(payload));
-                } else {
-                    drawWsQueue.push(payload);
-                    initDrawItemsSocket();
-                }
-
-                setTimeout(() => {
-                    if (drawWsPending.has(requestId)) {
-                        drawWsPending.delete(requestId);
-                        reject(new Error('draw_ws_timeout'));
+                $.ajax({
+                    url: `${BACK_URL}/api/game/get_draw_item`,
+                    type: 'POST',
+                    data: {
+                        request_id: requestId,
+                        player_id: playerIdFromEvent,
+                        session_id: sessionId
+                    },
+                    success: function (result) {
+                        resolve(result);
+                    },
+                    error: function (xhr, status, error) {
+                        reject(new Error('API request failed: ' + error));
                     }
-                }, 10000);
+                });
             });
         }
 
@@ -740,7 +681,7 @@
 
             let items = null;
             try {
-                const result = await fetchDrawItemsWs(requestId, playerIdFromEvent);
+                const result = await fetchDrawItems(requestId, playerIdFromEvent);
                 if (result && result.success && result.items !== undefined) {
                     items = result.items;
                 }
@@ -752,25 +693,6 @@
             if (!items) {
                 console.warn('draw_interface missing items payload');
                 return;
-            }
-            if (typeof items === 'string' || items instanceof String) {
-                try {
-                    items = JSON.parse(items);
-                } catch (error) {
-                    console.error('Error parsing draw items JSON:', error);
-                    items = [];
-                }
-            }
-            if (!Array.isArray(items)) {
-                const maybeJson = (items !== null && items !== undefined) ? String(items).trim() : '';
-                if (maybeJson.startsWith('[') || maybeJson.startsWith('{')) {
-                    try {
-                        items = JSON.parse(maybeJson);
-                    } catch (error) {
-                        console.error('Error parsing draw items JSON:', error);
-                        items = [];
-                    }
-                }
             }
             if (!Array.isArray(items)) {
                 console.warn('Draw items is not an array:', items);
@@ -1324,8 +1246,6 @@
             if (config.DEBUG_MODE) {
                 Pusher.logToConsole = true;
             }
-
-            initDrawItemsSocket();
 
             window.pusher = new Pusher(config.REVERB_APP_KEY, {
                 cluster: config.REVERB_CLUSTER,
