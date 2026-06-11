@@ -1211,6 +1211,9 @@
                 if (object['color'] !== undefined && object['color'] !== null) {
                     this.shape.tint = toPixiColorValue(object['color']);
                 }
+                if (object['centerAnchor']) {
+                    this.shape.anchor.set(0.5, 0.5);
+                }
             }
         }
 
