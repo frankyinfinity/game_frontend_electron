@@ -681,14 +681,22 @@
             }
 
             let items = null;
-            try {
-                const result = await fetchDrawItems(requestId, playerIdFromEvent);
-                if (result && result.success && result.items !== undefined) {
-                    items = result.items;
+
+            // Se gli items sono già presenti nel payload Pusher (es. container alert), usali direttamente
+            if (data.items && Array.isArray(data.items) && data.items.length > 0) {
+                items = data.items;
+                console.log('draw_interface: using items from Pusher payload directly, count:', items.length);
+            } else {
+                // Altrimenti fetch dal backend (DrawRequest API)
+                try {
+                    const result = await fetchDrawItems(requestId, playerIdFromEvent);
+                    if (result && result.success && result.items !== undefined) {
+                        items = result.items;
+                    }
+                } catch (error) {
+                    console.error('draw items ws error:', error);
+                    return;
                 }
-            } catch (error) {
-                console.error('draw items ws error:', error);
-                return;
             }
 
             if (!items) {
