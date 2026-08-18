@@ -4,7 +4,7 @@ module.exports = {
     REVERB_HOST: 'localhost',
     REVERB_PORT: 8081,
     REVERB_SCHEME: 'http',
-    REVERB_CLUSTER: 'mt1',
+    REVERB_CLUSTER: '',
     DRAW_WS_URL: 'ws://localhost:8080',
     DEBUG_MODE: true
 };

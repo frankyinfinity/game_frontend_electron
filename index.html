@@ -1260,10 +1260,12 @@
             }
 
             window.pusher = new Pusher(config.REVERB_APP_KEY, {
-                cluster: config.REVERB_CLUSTER,
+                cluster: config.REVERB_CLUSTER || '',
                 wsHost: config.REVERB_HOST,
                 wsPort: config.REVERB_PORT,
                 wssPort: config.REVERB_PORT,
+                httpHost: config.REVERB_HOST,
+                httpPort: config.REVERB_PORT,
                 forceTLS: config.REVERB_SCHEME === 'https',
                 enabledTransports: ['ws', 'wss'],
                 disableStats: true
