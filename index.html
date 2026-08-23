@@ -335,6 +335,26 @@
                     : {};
                 const childUids = viewportObject.attributes.scroll_child_uids;
                 const isPanelUid = (uid) => typeof uid === 'string' && uid.indexOf('_container_panel') !== -1;
+
+                // Build a set of UIDs that are children (recursively) of any open target panel
+                const openPanelChildUids = new Set();
+                const openPanels = window.__openTargetPanels || {};
+                Object.keys(openPanels).forEach((pUid) => {
+                    if (!openPanels[pUid]) return;
+                    const collectDescendants = (uid) => {
+                        const obj = objects[uid];
+                        if (!obj || !Array.isArray(obj.children)) return;
+                        obj.children.forEach((cUid) => {
+                            if (!openPanelChildUids.has(cUid)) {
+                                openPanelChildUids.add(cUid);
+                                collectDescendants(cUid);
+                            }
+                        });
+                    };
+                    collectDescendants(pUid);
+                });
+
+                const isOpenPanelDescendant = (uid) => openPanelChildUids.has(uid);
                 const hasVisibleBaseContent = childUids.some((uid) => {
                     if (isPanelUid(uid)) return false;
                     return initialRenderables[uid] === undefined ? true : !!initialRenderables[uid];
@@ -353,6 +373,10 @@
                     }
                     if (isPanelUid(uid)) {
                         shouldShow = !!(objects[uid] && objects[uid].attributes && objects[uid].attributes.renderable);
+                    }
+                    // Preserve visibility of descendants of any open target panel
+                    if (!shouldShow && isOpenPanelDescendant(uid)) {
+                        shouldShow = true;
                     }
                     if (shapes[uid]) shapes[uid].renderable = shouldShow;
                     if (objects[uid] && objects[uid].attributes) {
@@ -404,6 +428,47 @@
             refreshAllModalViewportMasks();
         }
         window.reapplyOpenModalsState = reapplyOpenModalsState;
+
+        function reapplyOpenTargetPanelsState() {
+            const openPanels = window.__openTargetPanels || {};
+            const panelUids = Object.keys(openPanels).filter(k => openPanels[k]);
+            if (panelUids.length === 0) return; // nothing to reopen
+
+            console.log('[ReapplyTargetPanels] Reopening', panelUids.length, 'panel(s):', panelUids);
+            
+            panelUids.forEach((panelUid) => {
+                console.log('[ReapplyTargetPanels] Panel', panelUid, 'shapes[panel]=', !!shapes[panelUid], 'objects[panel]=', !!objects[panelUid]);
+                
+                // Panel itself
+                if (shapes[panelUid]) {
+                    shapes[panelUid].renderable = true;
+                    shapes[panelUid].zIndex = 50000;
+                } else {
+                    console.warn('[ReapplyTargetPanels] Panel shape NOT FOUND:', panelUid);
+                }
+                if (objects[panelUid]) {
+                    if (!objects[panelUid].attributes) objects[panelUid].attributes = {};
+                    objects[panelUid].attributes.renderable = true;
+                    
+                    // Panel children
+                    const children = objects[panelUid].children || [];
+                    console.log('[ReapplyTargetPanels] Panel children count:', children.length);
+                    children.forEach((childUid) => {
+                        if (shapes[childUid]) {
+                            shapes[childUid].renderable = true;
+                            shapes[childUid].zIndex = 50001;
+                        }
+                        if (objects[childUid]) {
+                            if (!objects[childUid].attributes) objects[childUid].attributes = {};
+                            objects[childUid].attributes.renderable = true;
+                        }
+                    });
+                } else {
+                    console.warn('[ReapplyTargetPanels] Panel object NOT FOUND:', panelUid);
+                }
+            });
+            if (app && app.stage) app.stage.sortChildren();
+        }
 
         function getFormData(fields) {
             let datas = {};
@@ -711,6 +776,7 @@
             refreshAllModalViewportMasks();
             runScrollClipping();
             reapplyOpenModalsState();
+            reapplyOpenTargetPanelsState();
             ensureMapNavButtonsPositionAndZIndex();
             app.stage.sortChildren();
             await new Promise((resolve) => requestAnimationFrame(resolve));
@@ -863,6 +929,9 @@
                 }
 
             }
+
+            // Restore open target panel states after any redraw
+            reapplyOpenTargetPanelsState();
         }
 
         function bindChannelEvents(channel) {
